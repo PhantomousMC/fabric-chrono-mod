@@ -1,0 +1,10 @@
+Exception in thread "main" java.lang.RuntimeException: Could not load wrapper properties from '/home/ubuntu/work/chrono-mod/gradle/wrapper/gradle-wrapper.properties'.
+	at org.gradle.wrapper.WrapperExecutor.<init>(SourceFile)
+	at org.gradle.wrapper.GradleWrapperMain.main(SourceFile:39)
+Caused by: java.net.URISyntaxException: Illegal character in scheme name at index 5: https\://services.gradle.org/distributions/gradle-8.10.2-bin.zip
+	at java.base/java.net.URI$Parser.fail(URI.java:2995)
+	at java.base/java.net.URI$Parser.checkChars(URI.java:3166)
+	at java.base/java.net.URI$Parser.parse(URI.java:3192)
+	at java.base/java.net.URI.<init>(URI.java:645)
+	at org.gradle.util.internal.WrapperDistributionUrlConverter.convertDistributionUrl(SourceFile)
+	... 2 more

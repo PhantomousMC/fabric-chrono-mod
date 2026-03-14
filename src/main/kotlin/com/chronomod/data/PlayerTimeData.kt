@@ -1,0 +1,76 @@
+package com.chronomod.data
+
+import java.time.Instant
+import java.util.UUID
+import kotlinx.serialization.Contextual
+import kotlinx.serialization.Serializable
+
+/**
+ * Represents a player's time quota data.
+ *
+ * @property uuid Player's unique identifier
+ * @property remainingTimeSeconds Remaining quota in seconds
+ * @property lastWeeklyAllotment Timestamp when last weekly allotment was received
+ */
+@Serializable
+data class PlayerTimeData(
+        @Contextual val uuid: UUID,
+        var remainingTimeSeconds: Long,
+        @Contextual var lastWeeklyAllotment: Instant
+) {
+    companion object {
+        const val INITIAL_QUOTA_SECONDS = 8L * 60 * 60 // 8 hours
+        const val WEEKLY_ALLOTMENT_SECONDS = 8L * 60 * 60 // 8 hours
+        const val PVP_TRANSFER_SECONDS = 1L * 60 * 60 // 1 hour
+        const val WEEK_IN_SECONDS = 7L * 24 * 60 * 60 // 7 days
+
+        /** Creates a new player data with initial quota */
+        fun createNew(uuid: UUID): PlayerTimeData {
+            return PlayerTimeData(
+                    uuid = uuid,
+                    remainingTimeSeconds = INITIAL_QUOTA_SECONDS,
+                    lastWeeklyAllotment = Instant.now()
+            )
+        }
+    }
+
+    /** Check if player is eligible for weekly allotment */
+    fun isEligibleForWeeklyAllotment(): Boolean {
+        val timeSinceLastAllotment = Instant.now().epochSecond - lastWeeklyAllotment.epochSecond
+        return timeSinceLastAllotment >= WEEK_IN_SECONDS
+    }
+
+    /** Grant weekly allotment */
+    fun grantWeeklyAllotment() {
+        remainingTimeSeconds += WEEKLY_ALLOTMENT_SECONDS
+        lastWeeklyAllotment = Instant.now()
+    }
+
+    /**
+     * Decrease quota by specified seconds
+     * @return true if player still has time, false if depleted
+     */
+    fun decrementQuota(seconds: Long = 1): Boolean {
+        remainingTimeSeconds = maxOf(0, remainingTimeSeconds - seconds)
+        return remainingTimeSeconds > 0
+    }
+
+    /**
+     * Transfer quota to another player (used in PvP)
+     * @return actual amount transferred (may be less than requested if not enough quota)
+     */
+    fun transferQuotaTo(other: PlayerTimeData, amount: Long = PVP_TRANSFER_SECONDS): Long {
+        val actualTransfer = minOf(remainingTimeSeconds, amount)
+        remainingTimeSeconds -= actualTransfer
+        other.remainingTimeSeconds += actualTransfer
+        return actualTransfer
+    }
+
+    /** Format remaining time as HH:MM:SS */
+    fun formatRemainingTime(): String {
+        val hours = remainingTimeSeconds / 3600
+        val minutes = (remainingTimeSeconds % 3600) / 60
+        val seconds = remainingTimeSeconds % 60
+        return String.format("%02d:%02d:%02d", hours, minutes, seconds)
+    }
+}

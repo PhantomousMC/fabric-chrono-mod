@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "chrono-mod",
+  "version": "${version}",
+  "name": "Chrono Mod",
+  "description": "A server-side Fabric mod",
+  "authors": ["Your Name"],
+  "contact": {
+    "homepage": "https://github.com/yourusername/chrono-mod",
+    "sources": "https://github.com/yourusername/chrono-mod"
+  },
+  "license": "MIT",
+  "icon": "assets/chrono-mod/icon.png",
+  "environment": "server",
+  "entrypoints": {
+    "server": [
+      {
+        "adapter": "kotlin",
+        "value": "com.chronomod.ChronoMod"
+      }
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.18.2",
+    "fabric-api": "*",
+    "minecraft": "~1.21.11",
+    "java": ">=21",
+    "fabric-language-kotlin": ">=1.12.0"
+  },
+  "suggests": {}
+}
