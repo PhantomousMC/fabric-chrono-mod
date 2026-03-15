@@ -1,5 +1,6 @@
 package com.chronomod
 
+import com.chronomod.commands.ChronoCommand
 import com.chronomod.data.PlayerDataManager
 import com.chronomod.display.ScoreboardManager
 import com.chronomod.events.PlayerJoinHandler
@@ -25,6 +26,7 @@ object ChronoMod : DedicatedServerModInitializer {
     private lateinit var playerJoinHandler: PlayerJoinHandler
     private lateinit var pvpTransferHandler: PvPTransferHandler
     private lateinit var scoreboardManager: ScoreboardManager
+    private lateinit var chronoCommand: ChronoCommand
 
     // Auto-save timer
     private val autoSaveTickCounter = AtomicInteger(0)
@@ -43,6 +45,7 @@ object ChronoMod : DedicatedServerModInitializer {
         playerJoinHandler = PlayerJoinHandler(dataManager, LOGGER)
         pvpTransferHandler = PvPTransferHandler(dataManager, LOGGER)
         scoreboardManager = ScoreboardManager(dataManager, LOGGER)
+        chronoCommand = ChronoCommand(dataManager, LOGGER)
 
         // Register server lifecycle events
         registerLifecycleEvents()
@@ -52,6 +55,7 @@ object ChronoMod : DedicatedServerModInitializer {
         playerJoinHandler.register()
         pvpTransferHandler.register()
         scoreboardManager.register()
+        chronoCommand.register()
 
         // Register auto-save
         registerAutoSave()
