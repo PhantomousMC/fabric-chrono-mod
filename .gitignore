@@ -27,3 +27,7 @@ Thumbs.db
 # Minecraft development
 .cache/
 remappedSrc/
+
+# Compiled output at project root (e.g. from standalone kotlinc invocations)
+/META-INF/
+/com/

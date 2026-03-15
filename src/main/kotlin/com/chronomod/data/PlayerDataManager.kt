@@ -1,5 +1,6 @@
 package com.chronomod.data
 
+import com.chronomod.config.ModConfig
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
@@ -14,7 +15,11 @@ import kotlinx.serialization.modules.contextual
 import org.slf4j.Logger
 
 /** Manages player time data persistence and in-memory cache */
-class PlayerDataManager(private val dataFile: Path, private val logger: Logger) {
+class PlayerDataManager(
+        private val dataFile: Path,
+        private val logger: Logger,
+        private val config: ModConfig = ModConfig()
+) {
     // In-memory cache of player data
     private val playerData = ConcurrentHashMap<UUID, PlayerTimeData>()
 
@@ -68,7 +73,7 @@ class PlayerDataManager(private val dataFile: Path, private val logger: Logger) 
     fun getOrCreate(uuid: UUID): PlayerTimeData {
         return playerData.getOrPut(uuid) {
             logger.info("Creating new player data for $uuid")
-            PlayerTimeData.createNew(uuid)
+            PlayerTimeData.createNew(uuid, config.initialQuotaSeconds)
         }
     }
 
@@ -86,6 +91,59 @@ class PlayerDataManager(private val dataFile: Path, private val logger: Logger) 
     fun exists(uuid: UUID): Boolean {
         return playerData.containsKey(uuid)
     }
+
+    /**
+     * Check if player is eligible for allotment and grant it if so.
+     * @return AllotmentResult indicating what happened
+     */
+    fun checkAndGrantAllotment(uuid: UUID): AllotmentResult {
+        val playerData = getOrCreate(uuid)
+
+        return if (playerData.isEligibleForAllotment(config.allotmentPeriodLength)) {
+            playerData.grantAllotment(config.periodicAllotmentSeconds)
+            AllotmentResult.Granted(playerData.formatRemainingTime())
+        } else {
+            AllotmentResult.NotEligible(playerData.formatRemainingTime())
+        }
+    }
+
+    /**
+     * Transfer quota from victim to killer on PvP kill.
+     * @return PvPTransferResult with details about the transfer
+     */
+    fun transferQuotaOnPvPKill(victimUuid: UUID, killerUuid: UUID): PvPTransferResult {
+        val victimData = get(victimUuid) ?: return PvPTransferResult.NoData
+        val killerData = get(killerUuid) ?: return PvPTransferResult.NoData
+
+        val transferred = victimData.transferQuotaTo(killerData, config.pvpTransferSeconds)
+
+        return if (transferred > 0) {
+            PvPTransferResult.Success(
+                    transferred = transferred,
+                    victimRemaining = victimData.formatRemainingTime(),
+                    killerRemaining = killerData.formatRemainingTime()
+            )
+        } else {
+            PvPTransferResult.NoTimeAvailable
+        }
+    }
+}
+
+/** Result of checking and granting allotment */
+sealed class AllotmentResult {
+    data class Granted(val newTotal: String) : AllotmentResult()
+    data class NotEligible(val currentTotal: String) : AllotmentResult()
+}
+
+/** Result of PvP quota transfer */
+sealed class PvPTransferResult {
+    data class Success(
+            val transferred: Long,
+            val victimRemaining: String,
+            val killerRemaining: String
+    ) : PvPTransferResult()
+    object NoTimeAvailable : PvPTransferResult()
+    object NoData : PvPTransferResult()
 }
 
 /** Custom serializer for UUID */
