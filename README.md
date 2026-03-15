@@ -20,6 +20,12 @@ while they're online, encouraging strategic play and creating a fair, time-limit
 - Creates strategic gameplay decisions
 - Transfers only available quota (victim can't go negative)
 
+### 🎁 Voluntary Quota Transfer
+- Players can voluntarily transfer quota to others using `/chrono transfer`
+- Useful for helping friends or coordinating team play
+- Prevents self-transfers and negative amounts
+- Requires at least 1 minute transfer (no exploits)
+
 ### 💾 Persistent Storage
 - Player quotas automatically saved every 5 minutes
 - Manual save on player disconnect and server shutdown
@@ -55,15 +61,24 @@ while they're online, encouraging strategic play and creating a fair, time-limit
 2. **Playing**: Your quota burns at 1:1 ratio with real time
 3. **Weekly Bonus**: After 7 days, log in to receive +8 hours
 4. **PvP**: Defeating another player grants you +1 hour from their quota
-5. **Quota Depleted**: You'll be kicked and must wait for weekly allotment
+5. **Voluntary Transfer**: Share quota with friends using `/chrono transfer <player> <minutes>`
+6. **Quota Depleted**: You'll be kicked and must wait for weekly allotment
+
+### Commands
+- `/chrono transfer <player> <minutes>` - Transfer quota to another player
+  - Example: `/chrono transfer Steve 30` transfers 30 minutes to Steve
+  - Minimum: 1 minute
+  - Cannot transfer to yourself
+  - Requires sufficient quota in your account
 
 ### Example Timeline
 ```
 Day 0:  Join server → 8 hours quota
 Day 1:  Play 2 hours → 6 hours remaining  
 Day 3:  Play 3 hours → 3 hours remaining
-Day 5:  Kill player → 4 hours remaining (+1 from transfer)
-Day 7:  Login → 12 hours remaining (+8 weekly, still had 4)
+Day 5:  Kill player → 4 hours remaining (+1 from PvP)
+Day 6:  Transfer 1h to friend → 3 hours remaining
+Day 7:  Login → 11 hours remaining (+8 weekly, had 3 left)
 ```
 
 ## Development
