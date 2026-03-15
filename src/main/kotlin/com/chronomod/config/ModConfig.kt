@@ -11,8 +11,8 @@ import org.slf4j.Logger
  * Mod configuration loaded from config/chrono-mod/config.json.
  *
  * @property initialQuotaSeconds Quota granted to new players on first join (default: 8 hours)
- * @property weeklyAllotmentSeconds Quota granted at the start of each allotment period (default: 8
- *   hours)
+ * @property periodicAllotmentSeconds Quota granted at the start of each allotment period (default:
+ *   8 hours)
  * @property pvpTransferSeconds Quota transferred from victim to killer on a PvP kill (default: 1
  *   hour)
  * @property allotmentPeriodSeconds How many seconds must pass before the next allotment is granted
@@ -21,7 +21,7 @@ import org.slf4j.Logger
 @Serializable
 data class ModConfig(
         val initialQuotaSeconds: Long = 8L * 60 * 60,
-        val weeklyAllotmentSeconds: Long = 8L * 60 * 60,
+        val periodicAllotmentSeconds: Long = 8L * 60 * 60,
         val pvpTransferSeconds: Long = 1L * 60 * 60,
         val allotmentPeriodSeconds: Long = 7L * 24 * 60 * 60
 )
@@ -44,7 +44,7 @@ class ModConfigManager(private val configFile: Path, private val logger: Logger)
                 config = json.decodeFromString(content)
                 logger.info(
                         "Loaded config: initialQuotaSeconds=${config.initialQuotaSeconds}, " +
-                                "weeklyAllotmentSeconds=${config.weeklyAllotmentSeconds}, " +
+                                "periodicAllotmentSeconds=${config.periodicAllotmentSeconds}, " +
                                 "pvpTransferSeconds=${config.pvpTransferSeconds}, " +
                                 "allotmentPeriodSeconds=${config.allotmentPeriodSeconds}"
                 )

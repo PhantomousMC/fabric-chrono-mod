@@ -45,7 +45,7 @@ class PlayerJoinHandler(
         } else {
             // Existing player - check for allotment
             if (playerData.isEligibleForAllotment(config.allotmentPeriodSeconds)) {
-                playerData.grantAllotment(config.weeklyAllotmentSeconds)
+                playerData.grantAllotment(config.periodicAllotmentSeconds)
                 player.sendSystemMessage(
                         Component.literal(
                                 "§aAllotment granted! You now have ${playerData.formatRemainingTime()} of playtime."
