@@ -1,14 +1,18 @@
 package com.chronomod.events
 
+import com.chronomod.config.ModConfig
 import com.chronomod.data.PlayerDataManager
-import com.chronomod.data.PlayerTimeData
 import net.fabricmc.fabric.api.entity.event.v1.ServerEntityCombatEvents
 import net.minecraft.network.chat.Component
 import net.minecraft.server.level.ServerPlayer
 import org.slf4j.Logger
 
 /** Handles PvP kills and quota transfers */
-class PvPTransferHandler(private val dataManager: PlayerDataManager, private val logger: Logger) {
+class PvPTransferHandler(
+        private val dataManager: PlayerDataManager,
+        private val logger: Logger,
+        private val config: ModConfig = ModConfig()
+) {
     /** Register the PvP transfer handler */
     fun register() {
         ServerEntityCombatEvents.AFTER_KILLED_OTHER_ENTITY.register(
@@ -36,7 +40,7 @@ class PvPTransferHandler(private val dataManager: PlayerDataManager, private val
 
         // Transfer quota from victim to killer
         val transferred =
-                victimData.transferQuotaTo(killerData, PlayerTimeData.PVP_TRANSFER_SECONDS)
+                victimData.transferQuotaTo(killerData, config.pvpTransferSeconds)
 
         if (transferred > 0) {
             val transferredFormatted = formatSeconds(transferred)

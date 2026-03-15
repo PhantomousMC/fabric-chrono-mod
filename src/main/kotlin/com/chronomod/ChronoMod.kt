@@ -1,5 +1,6 @@
 package com.chronomod
 
+import com.chronomod.config.ModConfigManager
 import com.chronomod.data.PlayerDataManager
 import com.chronomod.display.ScoreboardManager
 import com.chronomod.events.PlayerJoinHandler
@@ -17,6 +18,9 @@ object ChronoMod : DedicatedServerModInitializer {
     const val MOD_ID = "chrono-mod"
     val LOGGER: Logger = LoggerFactory.getLogger(MOD_ID)
 
+    // Config manager
+    private lateinit var configManager: ModConfigManager
+
     // Data manager for persistence
     private lateinit var dataManager: PlayerDataManager
 
@@ -33,15 +37,21 @@ object ChronoMod : DedicatedServerModInitializer {
     override fun onInitializeServer() {
         LOGGER.info("Initializing Chrono Mod - Time Quota System")
 
-        // Initialize data manager
         val configDir = Paths.get("config", MOD_ID)
+
+        // Load config first so all components use the configured values
+        val configFile = configDir.resolve("config.json")
+        configManager = ModConfigManager(configFile, LOGGER)
+        configManager.load()
+
+        // Initialize data manager with config
         val dataFile = configDir.resolve("player-data.json")
-        dataManager = PlayerDataManager(dataFile, LOGGER)
+        dataManager = PlayerDataManager(dataFile, LOGGER, configManager.config)
 
         // Initialize systems
         quotaTracker = QuotaTracker(dataManager, LOGGER)
-        playerJoinHandler = PlayerJoinHandler(dataManager, LOGGER)
-        pvpTransferHandler = PvPTransferHandler(dataManager, LOGGER)
+        playerJoinHandler = PlayerJoinHandler(dataManager, LOGGER, configManager.config)
+        pvpTransferHandler = PvPTransferHandler(dataManager, LOGGER, configManager.config)
         scoreboardManager = ScoreboardManager(dataManager, LOGGER)
 
         // Register server lifecycle events

@@ -1,5 +1,6 @@
 package com.chronomod.data
 
+import com.chronomod.config.ModConfig
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
@@ -14,7 +15,11 @@ import kotlinx.serialization.modules.contextual
 import org.slf4j.Logger
 
 /** Manages player time data persistence and in-memory cache */
-class PlayerDataManager(private val dataFile: Path, private val logger: Logger) {
+class PlayerDataManager(
+        private val dataFile: Path,
+        private val logger: Logger,
+        private val config: ModConfig = ModConfig()
+) {
     // In-memory cache of player data
     private val playerData = ConcurrentHashMap<UUID, PlayerTimeData>()
 
@@ -68,7 +73,7 @@ class PlayerDataManager(private val dataFile: Path, private val logger: Logger) 
     fun getOrCreate(uuid: UUID): PlayerTimeData {
         return playerData.getOrPut(uuid) {
             logger.info("Creating new player data for $uuid")
-            PlayerTimeData.createNew(uuid)
+            PlayerTimeData.createNew(uuid, config.initialQuotaSeconds)
         }
     }
 

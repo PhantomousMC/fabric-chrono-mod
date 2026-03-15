@@ -24,25 +24,37 @@ data class PlayerTimeData(
         const val PVP_TRANSFER_SECONDS = 1L * 60 * 60 // 1 hour
         const val WEEK_IN_SECONDS = 7L * 24 * 60 * 60 // 7 days
 
-        /** Creates a new player data with initial quota */
-        fun createNew(uuid: UUID): PlayerTimeData {
+        /**
+         * Creates a new player data with the given initial quota.
+         *
+         * @param initialQuotaSeconds Starting quota in seconds (defaults to [INITIAL_QUOTA_SECONDS])
+         */
+        fun createNew(uuid: UUID, initialQuotaSeconds: Long = INITIAL_QUOTA_SECONDS): PlayerTimeData {
             return PlayerTimeData(
                     uuid = uuid,
-                    remainingTimeSeconds = INITIAL_QUOTA_SECONDS,
+                    remainingTimeSeconds = initialQuotaSeconds,
                     lastWeeklyAllotment = Instant.now()
             )
         }
     }
 
-    /** Check if player is eligible for weekly allotment */
-    fun isEligibleForWeeklyAllotment(): Boolean {
+    /**
+     * Check if the player is eligible for an allotment based on a configurable period.
+     *
+     * @param allotmentPeriodSeconds Period length in seconds (defaults to [WEEK_IN_SECONDS])
+     */
+    fun isEligibleForAllotment(allotmentPeriodSeconds: Long = WEEK_IN_SECONDS): Boolean {
         val timeSinceLastAllotment = Instant.now().epochSecond - lastWeeklyAllotment.epochSecond
-        return timeSinceLastAllotment >= WEEK_IN_SECONDS
+        return timeSinceLastAllotment >= allotmentPeriodSeconds
     }
 
-    /** Grant weekly allotment */
-    fun grantWeeklyAllotment() {
-        remainingTimeSeconds += WEEKLY_ALLOTMENT_SECONDS
+    /**
+     * Grant an allotment of the given size.
+     *
+     * @param allotmentSeconds Amount to add in seconds (defaults to [WEEKLY_ALLOTMENT_SECONDS])
+     */
+    fun grantAllotment(allotmentSeconds: Long = WEEKLY_ALLOTMENT_SECONDS) {
+        remainingTimeSeconds += allotmentSeconds
         lastWeeklyAllotment = Instant.now()
     }
 

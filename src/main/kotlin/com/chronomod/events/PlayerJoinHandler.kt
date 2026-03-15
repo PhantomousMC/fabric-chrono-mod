@@ -1,5 +1,6 @@
 package com.chronomod.events
 
+import com.chronomod.config.ModConfig
 import com.chronomod.data.PlayerDataManager
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents
 import net.minecraft.network.chat.Component
@@ -7,7 +8,11 @@ import net.minecraft.server.level.ServerPlayer
 import org.slf4j.Logger
 
 /** Handles player join events for quota management */
-class PlayerJoinHandler(private val dataManager: PlayerDataManager, private val logger: Logger) {
+class PlayerJoinHandler(
+        private val dataManager: PlayerDataManager,
+        private val logger: Logger,
+        private val config: ModConfig = ModConfig()
+) {
     /** Register join and disconnect handlers */
     fun register() {
         ServerPlayConnectionEvents.JOIN.register(
@@ -38,15 +43,15 @@ class PlayerJoinHandler(private val dataManager: PlayerDataManager, private val 
             )
             logger.info("New player ${player.name.string} ($uuid) joined with initial quota")
         } else {
-            // Existing player - check for weekly allotment
-            if (playerData.isEligibleForWeeklyAllotment()) {
-                playerData.grantWeeklyAllotment()
+            // Existing player - check for allotment
+            if (playerData.isEligibleForAllotment(config.allotmentPeriodSeconds)) {
+                playerData.grantAllotment(config.weeklyAllotmentSeconds)
                 player.sendSystemMessage(
                         Component.literal(
-                                "§aWeekly allotment granted! You now have ${playerData.formatRemainingTime()} of playtime."
+                                "§aAllotment granted! You now have ${playerData.formatRemainingTime()} of playtime."
                         )
                 )
-                logger.info("Granted weekly allotment to ${player.name.string} ($uuid)")
+                logger.info("Granted allotment to ${player.name.string} ($uuid)")
             } else {
                 // Just inform them of their remaining time
                 player.sendSystemMessage(
