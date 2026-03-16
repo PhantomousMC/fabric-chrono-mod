@@ -1,5 +1,7 @@
 package com.chronomod
 
+import com.chronomod.commands.ChronoCommand
+import com.chronomod.config.ModConfigManager
 import com.chronomod.data.PlayerDataManager
 import com.chronomod.display.ScoreboardManager
 import com.chronomod.events.PlayerJoinHandler
@@ -17,6 +19,9 @@ object ChronoMod : DedicatedServerModInitializer {
     const val MOD_ID = "chrono-mod"
     val LOGGER: Logger = LoggerFactory.getLogger(MOD_ID)
 
+    // Config manager
+    private lateinit var configManager: ModConfigManager
+
     // Data manager for persistence
     private lateinit var dataManager: PlayerDataManager
 
@@ -25,6 +30,7 @@ object ChronoMod : DedicatedServerModInitializer {
     private lateinit var playerJoinHandler: PlayerJoinHandler
     private lateinit var pvpTransferHandler: PvPTransferHandler
     private lateinit var scoreboardManager: ScoreboardManager
+    private lateinit var chronoCommand: ChronoCommand
 
     // Auto-save timer
     private val autoSaveTickCounter = AtomicInteger(0)
@@ -33,16 +39,23 @@ object ChronoMod : DedicatedServerModInitializer {
     override fun onInitializeServer() {
         LOGGER.info("Initializing Chrono Mod - Time Quota System")
 
-        // Initialize data manager
         val configDir = Paths.get("config", MOD_ID)
+
+        // Load config first so all components use the configured values
+        val configFile = configDir.resolve("config.json")
+        configManager = ModConfigManager(configFile, LOGGER)
+        configManager.load()
+
+        // Initialize data manager with config
         val dataFile = configDir.resolve("player-data.json")
-        dataManager = PlayerDataManager(dataFile, LOGGER)
+        dataManager = PlayerDataManager(dataFile, LOGGER, configManager.config)
 
         // Initialize systems
         scoreboardManager = ScoreboardManager(dataManager, LOGGER)
         quotaTracker = QuotaTracker(dataManager, LOGGER) { player -> scoreboardManager.updatePlayerDisplay(player) }
         playerJoinHandler = PlayerJoinHandler(dataManager, LOGGER)
         pvpTransferHandler = PvPTransferHandler(dataManager, LOGGER)
+        chronoCommand = ChronoCommand(dataManager, LOGGER)
 
         // Register server lifecycle events
         registerLifecycleEvents()
@@ -52,6 +65,7 @@ object ChronoMod : DedicatedServerModInitializer {
         playerJoinHandler.register()
         pvpTransferHandler.register()
         scoreboardManager.register()
+        chronoCommand.register()
 
         // Register auto-save
         registerAutoSave()

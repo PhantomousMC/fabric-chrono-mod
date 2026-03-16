@@ -6,19 +6,25 @@ while they're online, encouraging strategic play and creating a fair, time-limit
 ## Features
 
 ### ⏰ Time Quota System
-- **Initial Quota**: New players start with 8 hours of playtime
+- **Initial Quota**: New players start with a configurable amount of playtime (default: 8 hours)
 - **Time Burn**: Quota decreases in real-time while online (1 second per second)
 - **Automatic Kick**: Players are kicked when their quota reaches zero
 
-### 📅 Weekly Allotment
-- Every 7 days, players receive an additional 8 hours of playtime
-- Granted automatically on login (must be at least 7 days since last allotment)
+### 📅 Periodic Allotment
+- Players receive additional playtime at regular intervals (default: 8 hours every 7 days)
+- Granted automatically on login after the configured period has elapsed
 - Prevents stockpiling - only active players benefit
 
 ### ⚔️ PvP Quota Transfer
-- When a player kills another player, 1 hour of quota is transferred to the killer
+- When a player kills another player, quota is transferred to the killer (default: 1 hour)
 - Creates strategic gameplay decisions
 - Transfers only available quota (victim can't go negative)
+
+### 🎁 Voluntary Quota Transfer
+- Players can voluntarily transfer quota to others using `/chrono transfer`
+- Useful for helping friends or coordinating team play
+- Prevents self-transfers and negative amounts
+- Requires at least 1 minute transfer (no exploits)
 
 ### 💾 Persistent Storage
 - Player quotas automatically saved every 5 minutes
@@ -51,19 +57,30 @@ while they're online, encouraging strategic play and creating a fair, time-limit
 ## How It Works
 
 ### For Players
-1. **First Join**: You receive 8 hours of playtime
+1. **First Join**: You receive initial playtime quota (default: 8 hours)
 2. **Playing**: Your quota burns at 1:1 ratio with real time
-3. **Weekly Bonus**: After 7 days, log in to receive +8 hours
-4. **PvP**: Defeating another player grants you +1 hour from their quota
-5. **Quota Depleted**: You'll be kicked and must wait for weekly allotment
+3. **Periodic Bonus**: After the allotment period, log in to receive bonus time (default: +8 hours every 7 days)
+4. **PvP**: Defeating another player grants you quota from their pool (default: +1 hour)
+5. **Voluntary Transfer**: Share quota with friends using `/chrono transfer <player> <minutes>`
+6. **Quota Depleted**: You'll be kicked and must wait for the next allotment period
+
+**Note**: Default values shown above are configurable by server admins.
+
+### Commands
+- `/chrono transfer <player> <minutes>` - Transfer quota to another player
+  - Example: `/chrono transfer Steve 30` transfers 30 minutes to Steve
+  - Minimum: 1 minute
+  - Cannot transfer to yourself
+  - Requires sufficient quota in your account
 
 ### Example Timeline
 ```
 Day 0:  Join server → 8 hours quota
 Day 1:  Play 2 hours → 6 hours remaining  
 Day 3:  Play 3 hours → 3 hours remaining
-Day 5:  Kill player → 4 hours remaining (+1 from transfer)
-Day 7:  Login → 12 hours remaining (+8 weekly, still had 4)
+Day 5:  Kill player → 4 hours remaining (+1 from PvP)
+Day 6:  Transfer 1h to friend → 3 hours remaining
+Day 7:  Login → 11 hours remaining (+8 weekly, had 3 left)
 ```
 
 ## Development
@@ -93,6 +110,8 @@ cd chrono-mod
 ```
 src/main/kotlin/com/chronomod/
 ├── ChronoMod.kt              # Main entry point
+├── commands/                 # Admin commands
+├── config/                   # Configuration management
 ├── data/                     # Data models & persistence
 ├── systems/                  # Core game systems
 ├── events/                   # Event handlers
@@ -101,13 +120,38 @@ src/main/kotlin/com/chronomod/
 
 ## Configuration
 
-Currently, time values are hardcoded:
-- **Initial Quota**: 8 hours (28,800 seconds)
-- **Weekly Allotment**: 8 hours (28,800 seconds)
-- **PvP Transfer**: 1 hour (3,600 seconds)
-- **Auto-save Interval**: 5 minutes
+The mod's time quota parameters can be configured via `config/chrono-mod/config.json`. The file is automatically created
+with default values on first run.
 
-See [CLAUDE.md](CLAUDE.md) for technical documentation on customizing these values.
+### Configuration File
+Location: `config/chrono-mod/config.json`
+
+```json
+{
+  "initialQuotaSeconds": 28800,
+  "periodicAllotmentSeconds": 28800,
+  "pvpTransferSeconds": 3600,
+  "allotmentPeriodLength": 604800
+}
+```
+
+### Configuration Parameters
+- **initialQuotaSeconds**: Quota granted to new players on first join (default: 28,800 = 8 hours)
+- **periodicAllotmentSeconds**: Quota granted at each allotment period (default: 28,800 = 8 hours)
+- **pvpTransferSeconds**: Quota transferred on PvP kills (default: 3,600 = 1 hour)
+- **allotmentPeriodLength**: Time between allotments in seconds (default: 604,800 = 7 days)
+- **Auto-save Interval**: 5 minutes (hardcoded in ChronoMod.kt)
+
+### Changing Values
+1. Stop your server
+2. Edit `config/chrono-mod/config.json`
+3. Modify values (all times in seconds)
+4. Start your server
+5. Changes take effect for new quota grants/transfers
+
+**Note**: Existing player quotas are not retroactively adjusted when config changes.
+
+See [CLAUDE.md](CLAUDE.md) for technical documentation.
 
 ## Technical Details
 

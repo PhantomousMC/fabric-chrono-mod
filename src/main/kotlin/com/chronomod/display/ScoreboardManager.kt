@@ -149,3 +149,4 @@ class ScoreboardManager(private val dataManager: PlayerDataManager, private val 
         sendPlayerScore(player)
     }
 }
+
