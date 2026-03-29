@@ -32,11 +32,14 @@ while they're online, encouraging strategic play and creating a fair, time-limit
 - Survives server restarts and crashes
 - Stored in `config/chrono-mod/player-data.json`
 
-### 📊 Scoreboard Display
-- Real-time quota display on sidebar
-- Shows remaining time in minutes
-- Updates every second
-- Title: "⏰ Time Remaining"
+### 🏆 Advancement Rewards
+- Completing advancements grants bonus quota time
+- Three tiers based on advancement type (configurable):
+  - **Task**: +15 minutes (default)
+  - **Goal**: +30 minutes (default)
+  - **Challenge**: +1 hour (default)
+- Root and silent advancements (e.g. recipe unlocks) are excluded
+- Each advancement can only grant time once per session
 
 ## Installation
 
@@ -67,6 +70,9 @@ while they're online, encouraging strategic play and creating a fair, time-limit
 **Note**: Default values shown above are configurable by server admins.
 
 ### Commands
+- `/chrono balance` - Check your own remaining quota
+- `/chrono balance <player>` - Check another player's remaining quota
+- `/chrono list` - Show all players' remaining quota sorted alphabetically
 - `/chrono transfer <player> <minutes>` - Transfer quota to another player
   - Example: `/chrono transfer Steve 30` transfers 30 minutes to Steve
   - Minimum: 1 minute
@@ -76,11 +82,13 @@ while they're online, encouraging strategic play and creating a fair, time-limit
 ### Example Timeline
 ```
 Day 0:  Join server → 8 hours quota
-Day 1:  Play 2 hours → 6 hours remaining  
-Day 3:  Play 3 hours → 3 hours remaining
-Day 5:  Kill player → 4 hours remaining (+1 from PvP)
-Day 6:  Transfer 1h to friend → 3 hours remaining
-Day 7:  Login → 11 hours remaining (+8 weekly, had 3 left)
+Day 0:  Complete "Stone Age" advancement (task) → +15 min → 8h 15m
+Day 0:  Complete "Into Fire" advancement (challenge) → +1h → 9h 15m
+Day 1:  Play 2 hours → 7h 15m remaining
+Day 3:  Play 3 hours → 4h 15m remaining
+Day 5:  Kill player → 5h 15m remaining (+1 from PvP)
+Day 6:  Transfer 1h to friend → 4h 15m remaining
+Day 7:  Login → 12h 15m remaining (+8 weekly, had 4h 15m left)
 ```
 
 ## Development
@@ -110,12 +118,13 @@ cd chrono-mod
 ```
 src/main/kotlin/com/chronomod/
 ├── ChronoMod.kt              # Main entry point
-├── commands/                 # Admin commands
+├── commands/                 # Player commands (/chrono)
 ├── config/                   # Configuration management
 ├── data/                     # Data models & persistence
 ├── systems/                  # Core game systems
 ├── events/                   # Event handlers
-└── display/                  # UI components
+src/main/java/com/chronomod/
+└── mixin/                    # Minecraft mixins
 ```
 
 ## Configuration
@@ -131,7 +140,10 @@ Location: `config/chrono-mod/config.json`
   "initialQuotaSeconds": 28800,
   "periodicAllotmentSeconds": 28800,
   "pvpTransferSeconds": 3600,
-  "allotmentPeriodLength": 604800
+  "allotmentPeriodLength": 604800,
+  "advancementTaskSeconds": 900,
+  "advancementGoalSeconds": 1800,
+  "advancementChallengeSeconds": 3600
 }
 ```
 
@@ -140,6 +152,9 @@ Location: `config/chrono-mod/config.json`
 - **periodicAllotmentSeconds**: Quota granted at each allotment period (default: 28,800 = 8 hours)
 - **pvpTransferSeconds**: Quota transferred on PvP kills (default: 3,600 = 1 hour)
 - **allotmentPeriodLength**: Time between allotments in seconds (default: 604,800 = 7 days)
+- **advancementTaskSeconds**: Quota granted for task advancements (default: 900 = 15 minutes)
+- **advancementGoalSeconds**: Quota granted for goal advancements (default: 1,800 = 30 minutes)
+- **advancementChallengeSeconds**: Quota granted for challenge advancements (default: 3,600 = 1 hour)
 - **Auto-save Interval**: 5 minutes (hardcoded in ChronoMod.kt)
 
 ### Changing Values
@@ -169,11 +184,6 @@ For detailed technical documentation, see [CLAUDE.md](CLAUDE.md).
 - Check server logs for errors
 - Verify `config/chrono-mod/player-data.json` exists and is readable
 - Ensure at least 7 days have passed since last allotment
-
-### Scoreboard not displaying
-- Scoreboard initializes when server starts
-- Try rejoining if already online during startup
-- Check server logs for initialization errors
 
 ### Data not persisting
 - Verify `config/chrono-mod/` directory has write permissions

@@ -28,19 +28,21 @@ limited playtime that burns while they're online, with various ways to extend th
 src/main/kotlin/com/chronomod/
 ├── ChronoMod.kt                    # Main entry point, lifecycle management
 ├── commands/
-│   └── ChronoCommand.kt            # Admin command (/chrono)
+└─── ChronoCommand.kt            # Player commands (/chrono)
 ├── config/
-│   └── ModConfig.kt                # Configuration management
+└─── ModConfig.kt                # Configuration management
 ├── data/
-│   ├── PlayerTimeData.kt           # Player quota data model
-│   └── PlayerDataManager.kt        # JSON persistence, caching & business logic
+├─── PlayerTimeData.kt           # Player quota data model
+└─── PlayerDataManager.kt        # JSON persistence, caching & business logic
 ├── systems/
-│   └── QuotaTracker.kt             # Time burning mechanism
+└─── QuotaTracker.kt             # Time burning mechanism
 ├── events/
-│   ├── PlayerJoinHandler.kt        # Join/disconnect handling
-│   └── PvPTransferHandler.kt       # PvP quota transfers
-└── display/
-    └── ScoreboardManager.kt        # Scoreboard UI
+├─── PlayerJoinHandler.kt        # Join/disconnect handling
+├─── PvPTransferHandler.kt       # PvP quota transfers
+└─── AdvancementHandler.kt       # Advancement reward grants
+src/main/java/com/chronomod/
+└── mixin/
+    └── PlayerAdvancementsMixin.java # Mixin to intercept advancement events
 ```
 
 
@@ -72,7 +74,10 @@ data class ModConfig(
     val initialQuotaSeconds: Long = 8L * 60 * 60,
     val periodicAllotmentSeconds: Long = 8L * 60 * 60,
     val pvpTransferSeconds: Long = 1L * 60 * 60,
-    val allotmentPeriodLength: Long = 7L * 24 * 60 * 60
+    val allotmentPeriodLength: Long = 7L * 24 * 60 * 60,
+    val advancementTaskSeconds: Long = 15L * 60,
+    val advancementGoalSeconds: Long = 30L * 60,
+    val advancementChallengeSeconds: Long = 60L * 60
 )
 ```
 
@@ -81,6 +86,9 @@ data class ModConfig(
 - `periodicAllotmentSeconds` - Allotment size (default: 8 hours)
 - `pvpTransferSeconds` - PvP transfer amount (default: 1 hour)
 - `allotmentPeriodLength` - Time between allotments (default: 7 days)
+- `advancementTaskSeconds` - Reward for task advancements (default: 15 minutes)
+- `advancementGoalSeconds` - Reward for goal advancements (default: 30 minutes)
+- `advancementChallengeSeconds` - Reward for challenge advancements (default: 1 hour)
 
 **ModConfigManager**:
 - **Location**: `config/chrono-mod/config.json`
@@ -109,9 +117,13 @@ data class PlayerTimeData(
 - `createNew(uuid, initialQuotaSeconds)` - Initialize new player with configurable quota
 - `isEligibleForAllotment(periodLength)` - Check if allotment period has elapsed
 - `grantAllotment(allotmentSeconds)` - Add quota and update timestamp
+- `addTime(seconds)` - Add quota without updating `lastWeeklyAllotment` (used for advancement rewards)
 - `decrementQuota(seconds)` - Reduce quota, return false if depleted
 - `transferQuotaTo(other, amount)` - Transfer quota between players
 - `formatRemainingTime()` - Format as "HH:MM:SS"
+- `hasAwardedAdvancement(id)` - Check if advancement already granted time this session
+- `markAdvancementAwarded(id)` - Record advancement as awarded this session
+- `clearAwardedAdvancements()` - Clear session set on disconnect (memory cleanup)
 
 **Design Note**: Methods accept config values as parameters rather than using defaults, enforcing that all configuration
 flows through `PlayerDataManager`.
@@ -144,6 +156,9 @@ flows through `PlayerDataManager`.
   - Returns `PvPTransferResult.Success` with transfer details
   - Returns `PvPTransferResult.NoTimeAvailable` if victim has no quota
   - Returns `PvPTransferResult.NoData` if player data missing
+- `grantAdvancementTime(uuid, seconds)` - Grant quota for completing an advancement
+  - Returns `AdvancementGrantResult.Granted` with formatted duration
+  - Returns `AdvancementGrantResult.NoData` if player data missing
 
 **Result Types**:
 ```kotlin
@@ -160,6 +175,11 @@ sealed class PvPTransferResult {
     ) : PvPTransferResult()
     object NoTimeAvailable : PvPTransferResult()
     object NoData : PvPTransferResult()
+}
+
+sealed class AdvancementGrantResult {
+    data class Granted(val amountFormatted: String) : AdvancementGrantResult()
+    object NoData : AdvancementGrantResult()
 }
 ```
 
@@ -189,6 +209,7 @@ calculation rules are encapsulated in one place.
 4. Save data immediately
 
 **Disconnect Logic**:
+- Clear session advancement set via `playerData.clearAwardedAdvancements()`
 - Save player data on disconnect
 
 **Design Note**: Handler is a thin adapter - it translates Minecraft events to business operations without knowing about
@@ -213,20 +234,51 @@ configuration values.
 **Design Note**: Handler focuses on event coordination and player messaging, delegating business logic to the data
 layer.
 
-### 6. ScoreboardManager (Display)
-**File**: `src/main/kotlin/com/chronomod/display/ScoreboardManager.kt`
+### 6. AdvancementHandler (Advancement Rewards)
+**File**: `src/main/kotlin/com/chronomod/events/AdvancementHandler.kt`
 
-**Objective**:
-- **Name**: `time_quota`
-- **Type**: `ObjectiveCriteria.DUMMY`
-- **Display**: Sidebar (right side)
-- **Title**: "⏰ Time Remaining"
+**Dependencies**: `PlayerDataManager`, `Logger` (no config dependency)
 
-**Update Frequency**: Every 20 ticks (1 second)
+**Called from**: `ChronoMod.onAdvancementCompleted()` (bridge from `PlayerAdvancementsMixin`)
 
-**Display Format**: Shows remaining minutes as integer score
+**Reward Logic**:
+1. Skip advancements without display info (recipe unlocks, silent grants)
+2. Skip root advancements (IDs containing `/root`)
+3. Check session deduplication via `playerData.hasAwardedAdvancement(id)`
+4. Map `AdvancementType` → config seconds:
+   - `TASK` → `config.advancementTaskSeconds` (default: 15 min)
+   - `GOAL` → `config.advancementGoalSeconds` (default: 30 min)
+   - `CHALLENGE` → `config.advancementChallengeSeconds` (default: 1 hour)
+5. Delegate to `dataManager.grantAdvancementTime(uuid, seconds)`
+6. On `Granted` → mark advancement awarded, send chat message, save
+7. On `NoData` → log warning
 
-### 7. ChronoMod (Main Entry)
+### 7. PlayerAdvancementsMixin (Mixin)
+**File**: `src/main/java/com/chronomod/mixin/PlayerAdvancementsMixin.java`
+**Config**: `src/main/resources/chrono-mod.mixins.json`
+
+**Target**: `net.minecraft.server.PlayerAdvancements`
+
+**Injection**: `@Inject(method = "award", at = @At("RETURN"))`
+
+**Logic**:
+- `award()` is called per criterion; only fires when `cir.returnValue == true` (criterion newly granted)
+- Checks `getOrStartProgress(advancement).isDone()` — advancement fully completed
+- Skips advancements without display info (`advancement.value().display().isEmpty`)
+- Calls `ChronoMod.INSTANCE.onAdvancementCompleted(player, advancement)`
+
+**Design Note**: Written in Java (not Kotlin) to avoid annotation processing edge cases with Mixin.
+
+### 8. ChronoCommand (Player Commands)
+**File**: `src/main/kotlin/com/chronomod/commands/ChronoCommand.kt`
+
+**Commands**:
+- `/chrono balance` - Show own remaining quota
+- `/chrono balance <player>` - Show another player's remaining quota
+- `/chrono list` - List all players' quotas sorted alphabetically (shows short UUID for offline players)
+- `/chrono transfer <player> <minutes>` - Transfer quota to another player (min 1 minute, no self-transfer)
+
+### 9. ChronoMod (Main Entry)
 **File**: `src/main/kotlin/com/chronomod/ChronoMod.kt`
 
 **Initialization Order**:
@@ -238,9 +290,11 @@ layer.
 6. Setup auto-save (every 5 minutes)
 
 **Lifecycle Hooks**:
-- `SERVER_STARTED` → Load data, initialize scoreboard
+- `SERVER_STARTED` → Load data
 - `SERVER_STOPPING` → Save data
 - `END_SERVER_TICK` → Auto-save timer
+
+**Mixin Bridge**: `onAdvancementCompleted(player, advancement)` — called by `PlayerAdvancementsMixin`, delegates to `AdvancementHandler`
 
 **Design Note**: Config is loaded first and passed to PlayerDataManager, which then provides all config-aware business
 logic to the rest of the system.
@@ -297,12 +351,12 @@ logic to the rest of the system.
 - `ServerPlayConnectionEvents.JOIN`
 - `ServerPlayConnectionEvents.DISCONNECT`
 - `ServerEntityCombatEvents.AFTER_KILLED_OTHER_ENTITY`
+- Advancement events via Mixin (`PlayerAdvancements.award`)
 
 ### Minecraft APIs Used
 - `ServerPlayer` - Player entity operations
 - `Component` - Text/chat messages (Mojang mappings)
-- `Scoreboard` - Display management
-- `ObjectiveCriteria` - Scoreboard objectives
+- `PlayerAdvancements` / `AdvancementHolder` / `AdvancementType` - Advancement system
 
 ## Mojang Mappings Migration
 
@@ -312,9 +366,6 @@ logic to the rest of the system.
 | `ServerPlayerEntity` | `ServerPlayer` |
 | `Text` | `Component` |
 | `PlayerManager` | `PlayerList` |
-| `ScoreboardCriterion` | `ObjectiveCriteria` |
-| `ScoreboardObjective` | `Objective` |
-| `ScoreboardDisplaySlot` | `DisplaySlot` |
 | `ServerWorld` | `ServerLevel` |
 
 ### Method Changes
@@ -322,8 +373,6 @@ logic to the rest of the system.
 - `player.networkHandler` → `player.connection`
 - `server.playerManager` → `server.playerList`
 - `playerList.playerList` → `playerList.players`
-- `scoreboard.getOrCreateScore()` → `scoreboard.getOrCreatePlayerScore()`
-- `scoreboard.setObjectiveSlot()` → `scoreboard.setDisplayObjective()`
 
 ## Building
 
@@ -351,11 +400,19 @@ logic to the rest of the system.
 - [ ] Player rejoins after allotment period → Receives periodic allotment
 - [ ] Player A kills Player B → Configured amount transferred
 - [ ] Player uses `/chrono transfer` → Quota transferred voluntarily
+- [ ] `/chrono balance` → Shows own remaining time
+- [ ] `/chrono balance <player>` → Shows target player's remaining time
+- [ ] `/chrono list` → Lists all players sorted alphabetically
+- [ ] Player completes task advancement → +15 min granted, chat message shown
+- [ ] Player completes goal advancement → +30 min granted, chat message shown
+- [ ] Player completes challenge advancement → +1 hour granted, chat message shown
+- [ ] Player completes advancement with multiple criteria → time granted only once
+- [ ] Player completes root advancement (e.g. story/root) → no time granted
+- [ ] Player unlocks recipe → no time granted, no message
 - [ ] Player quota reaches 0 → Kicked from server
 - [ ] Server restart → Data persists
-- [ ] Scoreboard shows correct time
 - [ ] Multiple players online → All quotas burn correctly
-- [ ] Config file created on first run with defaults
+- [ ] Config file created on first run with defaults (including advancement fields)
 - [ ] Config changes applied after server restart
 
 ## Configuration
@@ -368,7 +425,10 @@ The mod supports JSON-based configuration via `config/chrono-mod/config.json`:
   "initialQuotaSeconds": 28800,
   "periodicAllotmentSeconds": 28800,
   "pvpTransferSeconds": 3600,
-  "allotmentPeriodLength": 604800
+  "allotmentPeriodLength": 604800,
+  "advancementTaskSeconds": 900,
+  "advancementGoalSeconds": 1800,
+  "advancementChallengeSeconds": 3600
 }
 ```
 
@@ -377,6 +437,9 @@ The mod supports JSON-based configuration via `config/chrono-mod/config.json`:
 - **periodicAllotmentSeconds**: Quota added at each allotment (default: 28,800 = 8 hours)
 - **pvpTransferSeconds**: Quota transferred on PvP kills (default: 3,600 = 1 hour)
 - **allotmentPeriodLength**: Seconds between allotments (default: 604,800 = 7 days)
+- **advancementTaskSeconds**: Quota for task advancements (default: 900 = 15 minutes)
+- **advancementGoalSeconds**: Quota for goal advancements (default: 1,800 = 30 minutes)
+- **advancementChallengeSeconds**: Quota for challenge advancements (default: 3,600 = 1 hour)
 
 ### Behavior
 - **Auto-creation**: File created with defaults if missing on first run
@@ -391,22 +454,24 @@ For a competitive server with daily allotments:
   "initialQuotaSeconds": 14400,
   "periodicAllotmentSeconds": 7200,
   "pvpTransferSeconds": 1800,
-  "allotmentPeriodLength": 86400
+  "allotmentPeriodLength": 86400,
+  "advancementTaskSeconds": 300,
+  "advancementGoalSeconds": 600,
+  "advancementChallengeSeconds": 1800
 }
 ```
-This gives new players 4 hours, daily allotments of 2 hours, and 30-minute PvP transfers.
+This gives new players 4 hours, daily allotments of 2 hours, 30-minute PvP transfers, and 5/10/30-minute advancement rewards.
 
 ## Known Limitations
 
-1. **Scoreboard display**: Shows minutes only (integer), not HH:MM:SS
-2. **Time precision**: 1-second granularity (may lose <1 sec on crashes)
-3. **No grace period**: Instant kick when quota depleted
-4. **Single quota pool**: No separate "bonus time" tracking
-5. **No hot-reload**: Config changes require server restart
+1. **Time precision**: 1-second granularity (may lose <1 sec on crashes)
+2. **No grace period**: Instant kick when quota depleted
+3. **Single quota pool**: No separate "bonus time" tracking
+4. **No hot-reload**: Config changes require server restart
+5. **Advancement deduplication is session-scoped**: Restarting the server resets the session set (safe — MC won't re-fire already-completed advancements)
 
 ## Future Enhancements
 
-- [ ] Admin commands for quota inspection and management
 - [ ] Grace period before kick
 - [ ] Playtime leaderboard
 - [ ] Time purchase system (with in-game currency)
@@ -427,9 +492,10 @@ This gives new players 4 hours, daily allotments of 2 hours, and 30-minute PvP t
   - **Check**: `config/chrono-mod/` directory permissions
   - **Check**: Server logs for save/load errors
 
-- **Issue**: Scoreboard not showing
-  - **Check**: Server started successfully
-  - **Check**: Players are online during initialization
+- **Issue**: Advancement rewards not triggering
+  - **Check**: `chrono-mod.mixins.json` is present in the JAR
+  - **Check**: `fabric.mod.json` contains `"mixins": ["chrono-mod.mixins.json"]`
+  - **Check**: Server logs for mixin application errors on startup
 
 ## License
 MIT License - See LICENSE file for details
