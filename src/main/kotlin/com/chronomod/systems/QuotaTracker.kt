@@ -59,9 +59,6 @@ class QuotaTracker(
         // Decrement quota by 1 second
         val stillHasTime = playerData.decrementQuota(1)
 
-        // Notify dependent systems of the burn (e.g. refresh scoreboard display)
-        onQuotaBurned?.invoke(player)
-
         // If quota depleted, kick the player
         if (!stillHasTime) {
             kickPlayerForNoQuota(player)

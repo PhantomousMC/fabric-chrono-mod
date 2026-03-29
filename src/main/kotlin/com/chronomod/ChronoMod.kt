@@ -3,7 +3,6 @@ package com.chronomod
 import com.chronomod.commands.ChronoCommand
 import com.chronomod.config.ModConfigManager
 import com.chronomod.data.PlayerDataManager
-import com.chronomod.display.ScoreboardManager
 import com.chronomod.events.PlayerJoinHandler
 import com.chronomod.events.PvPTransferHandler
 import com.chronomod.systems.QuotaTracker
@@ -29,7 +28,6 @@ object ChronoMod : DedicatedServerModInitializer {
     private lateinit var quotaTracker: QuotaTracker
     private lateinit var playerJoinHandler: PlayerJoinHandler
     private lateinit var pvpTransferHandler: PvPTransferHandler
-    private lateinit var scoreboardManager: ScoreboardManager
     private lateinit var chronoCommand: ChronoCommand
 
     // Auto-save timer
@@ -51,8 +49,7 @@ object ChronoMod : DedicatedServerModInitializer {
         dataManager = PlayerDataManager(dataFile, LOGGER, configManager.config)
 
         // Initialize systems
-        scoreboardManager = ScoreboardManager(dataManager, LOGGER)
-        quotaTracker = QuotaTracker(dataManager, LOGGER) { player -> scoreboardManager.updatePlayerDisplay(player) }
+        quotaTracker = QuotaTracker(dataManager, LOGGER)
         playerJoinHandler = PlayerJoinHandler(dataManager, LOGGER)
         pvpTransferHandler = PvPTransferHandler(dataManager, LOGGER)
         chronoCommand = ChronoCommand(dataManager, LOGGER)
@@ -64,7 +61,6 @@ object ChronoMod : DedicatedServerModInitializer {
         quotaTracker.register()
         playerJoinHandler.register()
         pvpTransferHandler.register()
-        scoreboardManager.register()
         chronoCommand.register()
 
         // Register auto-save
@@ -75,11 +71,10 @@ object ChronoMod : DedicatedServerModInitializer {
 
     /** Register server lifecycle events */
     private fun registerLifecycleEvents() {
-        // Server started - load data and initialize scoreboard
+        // Server started - load data
         ServerLifecycleEvents.SERVER_STARTED.register { server ->
             LOGGER.info("Server started - loading player data")
             dataManager.load()
-            scoreboardManager.initialize(server)
         }
 
         // Server stopping - save data

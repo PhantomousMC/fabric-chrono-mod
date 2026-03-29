@@ -32,6 +32,31 @@ class ChronoCommand(private val dataManager: PlayerDataManager, private val logg
                                     )
                             )
                     )
+                    .then(
+                        Commands.literal("list")
+                            .executes { context ->
+                                val executor = context.source.playerOrException
+                                val server = context.source.server
+                                executeList(executor, server)
+                            }
+                    )
+                    .then(
+                        Commands.literal("balance")
+                            .executes { context ->
+                                val executor = context.source.playerOrException
+                                val server = context.source.server
+                                executeBalance(executor, executor, server)
+                            }
+                            .then(
+                                Commands.argument("player", EntityArgument.player())
+                                    .executes { context ->
+                                        val executor = context.source.playerOrException
+                                        val target = EntityArgument.getPlayer(context, "player")
+                                        val server = context.source.server
+                                        executeBalance(executor, target, server)
+                                    }
+                            )
+                    )
             )
         }
         logger.info("ChronoCommand registered")
@@ -92,5 +117,61 @@ class ChronoCommand(private val dataManager: PlayerDataManager, private val logg
             minutes > 0 -> String.format("%dm %ds", minutes, secs)
             else -> String.format("%ds", secs)
         }
+    }
+
+    /** Execute the list subcommand - show all players' remaining time */
+    private fun executeList(executor: ServerPlayer, server: net.minecraft.server.MinecraftServer): Int {
+        val allPlayers = dataManager.getAll()
+        
+        if (allPlayers.isEmpty()) {
+            executor.sendSystemMessage(Component.literal("§cNo player data available."))
+            return 1
+        }
+
+        // Sort by player name for readability
+        val playerList = allPlayers
+            .mapNotNull { data -> 
+                val playerUuid = data.uuid
+                // Try to get the player if online, fallback to UUID string
+                val playerName = server.playerList.getPlayer(playerUuid)?.name?.string 
+                    ?: playerUuid.toString().substring(0, 8) // Fallback to short UUID
+                Pair(playerName, data)
+            }
+            .sortedBy { it.first }
+
+        // Build message
+        val messageLines = mutableListOf("§6=== Player Time Quotas ===")
+        for ((name, data) in playerList) {
+            messageLines.add("§f$name: §a${data.formatRemainingTime()}")
+        }
+
+        // Send each line as a separate message
+        for (line in messageLines) {
+            executor.sendSystemMessage(Component.literal(line))
+        }
+
+        return 1
+    }
+
+    /** Execute the balance subcommand - show a player's remaining time */
+    private fun executeBalance(executor: ServerPlayer, target: ServerPlayer, server: net.minecraft.server.MinecraftServer): Int {
+        val playerData = dataManager.get(target.uuid)
+
+        if (playerData == null) {
+            executor.sendSystemMessage(
+                Component.literal("§c${target.name.string} has no quota data yet.")
+            )
+            return 0
+        }
+
+        val isOwnBalance = executor.uuid == target.uuid
+        val message = if (isOwnBalance) {
+            "§fYour remaining time: §a${playerData.formatRemainingTime()}"
+        } else {
+            "§f${target.name.string}'s remaining time: §a${playerData.formatRemainingTime()}"
+        }
+
+        executor.sendSystemMessage(Component.literal(message))
+        return 1
     }
 }
