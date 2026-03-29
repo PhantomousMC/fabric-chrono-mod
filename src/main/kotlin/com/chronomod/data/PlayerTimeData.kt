@@ -4,6 +4,7 @@ import java.time.Instant
 import java.util.UUID
 import kotlinx.serialization.Contextual
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 
 /**
  * Represents a player's time quota data.
@@ -18,6 +19,12 @@ data class PlayerTimeData(
         var remainingTimeSeconds: Long,
         @Contextual var lastWeeklyAllotment: Instant
 ) {
+    /**
+     * Session-scoped set of advancement IDs that have already granted time.
+     * Not serialized to JSON — resets per server restart/player disconnect.
+     */
+    @Transient
+    private val awardedAdvancements: MutableSet<String> = mutableSetOf()
     companion object {
         // Legacy constants - kept for reference only
         // Actual values should be loaded from ModConfig
@@ -75,6 +82,14 @@ data class PlayerTimeData(
     }
 
     /**
+     * Add quota from an advancement reward. Does not update [lastWeeklyAllotment].
+     * @param seconds Amount to add in seconds
+     */
+    fun addTime(seconds: Long) {
+        remainingTimeSeconds += seconds
+    }
+
+    /**
      * Transfer quota to another player (used in PvP)
      * @param other The player to transfer quota to
      * @param amount Amount of quota to transfer in seconds
@@ -93,5 +108,28 @@ data class PlayerTimeData(
         val minutes = (remainingTimeSeconds % 3600) / 60
         val seconds = remainingTimeSeconds % 60
         return String.format("%02d:%02d:%02d", hours, minutes, seconds)
+    }
+
+    /**
+     * Check if an advancement has already been awarded this session.
+     * @param advancementId Advancement identifier
+     */
+    fun hasAwardedAdvancement(advancementId: String): Boolean {
+        return awardedAdvancements.contains(advancementId)
+    }
+
+    /**
+     * Mark an advancement as awarded this session.
+     * @param advancementId Advancement identifier
+     */
+    fun markAdvancementAwarded(advancementId: String) {
+        awardedAdvancements.add(advancementId)
+    }
+
+    /**
+     * Clear awarded advancements set (called on disconnect to free memory).
+     */
+    fun clearAwardedAdvancements() {
+        awardedAdvancements.clear()
     }
 }

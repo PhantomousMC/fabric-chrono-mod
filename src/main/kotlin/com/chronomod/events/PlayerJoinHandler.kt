@@ -63,9 +63,11 @@ class PlayerJoinHandler(private val dataManager: PlayerDataManager, private val 
         dataManager.save()
     }
 
-    /** Handle player disconnect - save data */
+    /** Handle player disconnect - save data and clear awarded advancements set */
     private fun onPlayerDisconnect(player: ServerPlayer) {
         logger.info("Player ${player.name.string} (${player.uuid}) disconnected")
+        // Clear awarded advancements to free memory
+        dataManager.get(player.uuid)?.clearAwardedAdvancements()
         dataManager.save()
     }
 }

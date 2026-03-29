@@ -18,7 +18,7 @@ import org.slf4j.Logger
 class PlayerDataManager(
         private val dataFile: Path,
         private val logger: Logger,
-        private val config: ModConfig = ModConfig()
+        val config: ModConfig = ModConfig()
 ) {
     // In-memory cache of player data
     private val playerData = ConcurrentHashMap<UUID, PlayerTimeData>()
@@ -108,6 +108,25 @@ class PlayerDataManager(
     }
 
     /**
+     * Grant quota for completing an advancement.
+     * @param uuid Player UUID
+     * @param seconds Amount to add in seconds
+     * @return AdvancementGrantResult with details about the grant
+     */
+    fun grantAdvancementTime(uuid: UUID, seconds: Long): AdvancementGrantResult {
+        val data = get(uuid) ?: return AdvancementGrantResult.NoData
+        data.addTime(seconds)
+        return AdvancementGrantResult.Granted(formatDuration(seconds))
+    }
+
+    private fun formatDuration(seconds: Long): String {
+        val h = seconds / 3600
+        val m = (seconds % 3600) / 60
+        val s = seconds % 60
+        return String.format("%02d:%02d:%02d", h, m, s)
+    }
+
+    /**
      * Transfer quota from victim to killer on PvP kill.
      * @return PvPTransferResult with details about the transfer
      */
@@ -127,6 +146,12 @@ class PlayerDataManager(
             PvPTransferResult.NoTimeAvailable
         }
     }
+}
+
+/** Result of granting advancement time */
+sealed class AdvancementGrantResult {
+    data class Granted(val amountFormatted: String) : AdvancementGrantResult()
+    object NoData : AdvancementGrantResult()
 }
 
 /** Result of checking and granting allotment */

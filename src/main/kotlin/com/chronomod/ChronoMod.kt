@@ -4,6 +4,7 @@ import com.chronomod.commands.ChronoCommand
 import com.chronomod.config.ModConfigManager
 import com.chronomod.data.PlayerDataManager
 import com.chronomod.display.ScoreboardManager
+import com.chronomod.events.AdvancementHandler
 import com.chronomod.events.PlayerJoinHandler
 import com.chronomod.events.PvPTransferHandler
 import com.chronomod.systems.QuotaTracker
@@ -12,6 +13,8 @@ import java.util.concurrent.atomic.AtomicInteger
 import net.fabricmc.api.DedicatedServerModInitializer
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents
+import net.minecraft.advancements.AdvancementHolder
+import net.minecraft.server.level.ServerPlayer
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
@@ -30,6 +33,7 @@ object ChronoMod : DedicatedServerModInitializer {
     private lateinit var playerJoinHandler: PlayerJoinHandler
     private lateinit var pvpTransferHandler: PvPTransferHandler
     private lateinit var scoreboardManager: ScoreboardManager
+    private lateinit var advancementHandler: AdvancementHandler
     private lateinit var chronoCommand: ChronoCommand
 
     // Auto-save timer
@@ -55,6 +59,7 @@ object ChronoMod : DedicatedServerModInitializer {
         quotaTracker = QuotaTracker(dataManager, LOGGER) { player -> scoreboardManager.updatePlayerDisplay(player) }
         playerJoinHandler = PlayerJoinHandler(dataManager, LOGGER)
         pvpTransferHandler = PvPTransferHandler(dataManager, LOGGER)
+        advancementHandler = AdvancementHandler(dataManager, LOGGER)
         chronoCommand = ChronoCommand(dataManager, LOGGER)
 
         // Register server lifecycle events
@@ -71,6 +76,11 @@ object ChronoMod : DedicatedServerModInitializer {
         registerAutoSave()
 
         LOGGER.info("Chrono Mod initialized successfully!")
+    }
+
+    /** Called from the mixin when a player completes a visible advancement */
+    fun onAdvancementCompleted(player: ServerPlayer, advancement: AdvancementHolder) {
+        advancementHandler.onAdvancementCompleted(player, advancement)
     }
 
     /** Register server lifecycle events */

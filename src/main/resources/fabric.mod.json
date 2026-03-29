@@ -27,5 +27,8 @@
     "java": ">=21",
     "fabric-language-kotlin": ">=1.12.0"
   },
-  "suggests": {}
+  "suggests": {},
+  "mixins": [
+    "chrono-mod.mixins.json"
+  ]
 }

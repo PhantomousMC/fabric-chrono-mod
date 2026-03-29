@@ -23,7 +23,10 @@ data class ModConfig(
         val initialQuotaSeconds: Long = 8L * 60 * 60,
         val periodicAllotmentSeconds: Long = 8L * 60 * 60,
         val pvpTransferSeconds: Long = 1L * 60 * 60,
-        val allotmentPeriodLength: Long = 7L * 24 * 60 * 60
+        val allotmentPeriodLength: Long = 7L * 24 * 60 * 60,
+        val advancementTaskSeconds: Long = 15L * 60,
+        val advancementGoalSeconds: Long = 30L * 60,
+        val advancementChallengeSeconds: Long = 60L * 60
 )
 
 /** Loads and saves [ModConfig] to/from a JSON file, creating defaults when absent. */
@@ -46,7 +49,10 @@ class ModConfigManager(private val configFile: Path, private val logger: Logger)
                         "Loaded config: initialQuotaSeconds=${config.initialQuotaSeconds}, " +
                                 "periodicAllotmentSeconds=${config.periodicAllotmentSeconds}, " +
                                 "pvpTransferSeconds=${config.pvpTransferSeconds}, " +
-                                "allotmentPeriodLength=${config.allotmentPeriodLength}"
+                                "allotmentPeriodLength=${config.allotmentPeriodLength}, " +
+                                "advancementTaskSeconds=${config.advancementTaskSeconds}, " +
+                                "advancementGoalSeconds=${config.advancementGoalSeconds}, " +
+                                "advancementChallengeSeconds=${config.advancementChallengeSeconds}"
                 )
             } else {
                 logger.info(
