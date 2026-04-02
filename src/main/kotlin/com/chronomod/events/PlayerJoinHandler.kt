@@ -1,18 +1,22 @@
 package com.chronomod.events
 
+import com.chronomod.ChronoMod
 import com.chronomod.data.AllotmentResult
 import com.chronomod.data.PlayerDataManager
+import com.chronomod.systems.BossbarTracker
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents
 import net.minecraft.network.chat.Component
 import net.minecraft.server.level.ServerPlayer
 import org.slf4j.Logger
 
 /** Handles player join events for quota management */
-class PlayerJoinHandler(private val dataManager: PlayerDataManager, private val logger: Logger) {
+class PlayerJoinHandler(private val dataManager: PlayerDataManager, private val bossbarTracker: BossbarTracker, private val logger: Logger) {
     /** Register join and disconnect handlers */
     fun register() {
         ServerPlayConnectionEvents.JOIN.register(
-                ServerPlayConnectionEvents.Join { handler, _, _ -> onPlayerJoin(handler.player) }
+                ServerPlayConnectionEvents.Join { handler, _, _ -> 
+                    onPlayerJoin(handler.player)
+                }
         )
 
         ServerPlayConnectionEvents.DISCONNECT.register(
@@ -61,13 +65,37 @@ class PlayerJoinHandler(private val dataManager: PlayerDataManager, private val 
 
         // Save immediately after any quota changes
         dataManager.save()
+
+        // Update stored username (handles new players and name changes)
+        val playerData = dataManager.get(uuid)!!
+        playerData.username = player.name.string
+
+        // Deliver any pending notifications queued while the player was offline
+        if (playerData.pendingNotifications.isNotEmpty()) {
+            for (msg in playerData.pendingNotifications) {
+                player.sendSystemMessage(Component.literal(msg))
+            }
+            playerData.pendingNotifications.clear()
+            dataManager.save()
+        }
+
+        // Show bossbar if happy hour is active
+        val server = ChronoMod.currentServer
+        if (server != null) {
+            bossbarTracker.showToPlayer(uuid, server)
+        }
     }
 
-    /** Handle player disconnect - save data and clear awarded advancements set */
+    /** Handle player disconnect - save data and clean up bossbar */
     private fun onPlayerDisconnect(player: ServerPlayer) {
         logger.info("Player ${player.name.string} (${player.uuid}) disconnected")
         // Clear awarded advancements to free memory
         dataManager.get(player.uuid)?.clearAwardedAdvancements()
         dataManager.save()
+        // Remove bossbar from player
+        val server = ChronoMod.currentServer
+        if (server != null) {
+            bossbarTracker.removeFromPlayer(player.uuid, server)
+        }
     }
 }

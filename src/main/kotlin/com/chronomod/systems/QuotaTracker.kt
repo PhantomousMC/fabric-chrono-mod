@@ -11,6 +11,7 @@ import org.slf4j.Logger
 class QuotaTracker(
         private val dataManager: PlayerDataManager,
         private val logger: Logger,
+        private val happyHourManager: HappyHourManager,
         /**
          * Optional callback invoked after each per-second quota burn, before any kick.
          * Use this to update dependent systems (e.g. the scoreboard display) in sync
@@ -55,6 +56,11 @@ class QuotaTracker(
     private fun burnQuotaForPlayer(player: ServerPlayer) {
         val uuid = player.uuid
         val playerData = dataManager.get(uuid) ?: return
+
+        // Skip quota burn during happy hour
+        if (happyHourManager.isActive()) {
+            return
+        }
 
         // Decrement quota by 1 second
         val stillHasTime = playerData.decrementQuota(1)
