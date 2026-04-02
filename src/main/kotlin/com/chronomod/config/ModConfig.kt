@@ -26,7 +26,8 @@ data class ModConfig(
         val allotmentPeriodLength: Long = 7L * 24 * 60 * 60,
         val advancementTaskSeconds: Long = 15L * 60,
         val advancementGoalSeconds: Long = 30L * 60,
-        val advancementChallengeSeconds: Long = 60L * 60
+        val advancementChallengeSeconds: Long = 60L * 60,
+        val pvpTransferMultiplier: Double = 2.0
 )
 
 /** Loads and saves [ModConfig] to/from a JSON file, creating defaults when absent. */
@@ -53,7 +54,8 @@ class ModConfigManager(private val configFile: Path, private val logger: Logger)
                                 "allotmentPeriodLength=${config.allotmentPeriodLength}, " +
                                 "advancementTaskSeconds=${config.advancementTaskSeconds}, " +
                                 "advancementGoalSeconds=${config.advancementGoalSeconds}, " +
-                                "advancementChallengeSeconds=${config.advancementChallengeSeconds}"
+                                "advancementChallengeSeconds=${config.advancementChallengeSeconds}, " +
+                                "pvpTransferMultiplier=${config.pvpTransferMultiplier}"
                 )
             } else {
                 logger.info(

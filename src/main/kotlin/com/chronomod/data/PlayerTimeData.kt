@@ -17,7 +17,9 @@ import kotlinx.serialization.Transient
 data class PlayerTimeData(
         @Contextual val uuid: UUID,
         var remainingTimeSeconds: Long,
-        @Contextual var lastWeeklyAllotment: Instant
+        @Contextual var lastWeeklyAllotment: Instant,
+        var username: String = "",
+        val pendingNotifications: MutableList<String> = mutableListOf()
 ) {
     /**
      * Session-scoped set of advancement IDs that have already granted time.

@@ -92,6 +92,28 @@ class PlayerDataManager(
         return playerData.containsKey(uuid)
     }
 
+    /** Find player data by username (case-insensitive). Returns null if not found. */
+    fun getByUsername(name: String): PlayerTimeData? {
+        return playerData.values.firstOrNull { it.username.equals(name, ignoreCase = true) }
+    }
+
+    /**
+     * Resolve a player by name: checks online players first, then falls back to stored username.
+     * @return Pair of (online ServerPlayer or null, PlayerTimeData or null if completely unknown)
+     */
+    fun resolvePlayer(
+        name: String,
+        server: net.minecraft.server.MinecraftServer
+    ): Pair<net.minecraft.server.level.ServerPlayer?, PlayerTimeData?> {
+        val onlinePlayer = server.playerList.players.firstOrNull {
+            it.name.string.equals(name, ignoreCase = true)
+        }
+        if (onlinePlayer != null) {
+            return Pair(onlinePlayer, get(onlinePlayer.uuid))
+        }
+        return Pair(null, getByUsername(name))
+    }
+
     /**
      * Check if player is eligible for allotment and grant it if so.
      * @return AllotmentResult indicating what happened
@@ -128,13 +150,18 @@ class PlayerDataManager(
 
     /**
      * Transfer quota from victim to killer on PvP kill.
+     * @param victimUuid UUID of the victim
+     * @param killerUuid UUID of the killer
+     * @param multiplier Multiplier for the transfer amount (e.g. 2.0 during happy hour)
      * @return PvPTransferResult with details about the transfer
      */
-    fun transferQuotaOnPvPKill(victimUuid: UUID, killerUuid: UUID): PvPTransferResult {
+    fun transferQuotaOnPvPKill(victimUuid: UUID, killerUuid: UUID, multiplier: Double = 1.0): PvPTransferResult {
         val victimData = get(victimUuid) ?: return PvPTransferResult.NoData
         val killerData = get(killerUuid) ?: return PvPTransferResult.NoData
 
-        val transferred = victimData.transferQuotaTo(killerData, config.pvpTransferSeconds)
+        val baseAmount = config.pvpTransferSeconds
+        val transferAmount = (baseAmount * multiplier).toLong()
+        val transferred = victimData.transferQuotaTo(killerData, transferAmount)
 
         return if (transferred > 0) {
             PvPTransferResult.Success(

@@ -28,17 +28,19 @@ limited playtime that burns while they're online, with various ways to extend th
 src/main/kotlin/com/chronomod/
 ├── ChronoMod.kt                    # Main entry point, lifecycle management
 ├── commands/
-└─── ChronoCommand.kt            # Player commands (/chrono)
+└─── ChronoCommand.kt            # Player commands (/chrono, including happy hour)
 ├── config/
 └─── ModConfig.kt                # Configuration management
 ├── data/
 ├─── PlayerTimeData.kt           # Player quota data model
 └─── PlayerDataManager.kt        # JSON persistence, caching & business logic
 ├── systems/
-└─── QuotaTracker.kt             # Time burning mechanism
+├─── QuotaTracker.kt             # Time burning mechanism (gated during happy hour)
+├─── HappyHourManager.kt         # Happy hour state management
+└─── BossbarTracker.kt           # Countdown timer display (via action bar)
 ├── events/
 ├─── PlayerJoinHandler.kt        # Join/disconnect handling
-├─── PvPTransferHandler.kt       # PvP quota transfers
+├─── PvPTransferHandler.kt       # PvP quota transfers (multiplied during happy hour)
 └─── AdvancementHandler.kt       # Advancement reward grants
 src/main/java/com/chronomod/
 └── mixin/
@@ -77,7 +79,8 @@ data class ModConfig(
     val allotmentPeriodLength: Long = 7L * 24 * 60 * 60,
     val advancementTaskSeconds: Long = 15L * 60,
     val advancementGoalSeconds: Long = 30L * 60,
-    val advancementChallengeSeconds: Long = 60L * 60
+    val advancementChallengeSeconds: Long = 60L * 60,
+    val pvpTransferMultiplier: Double = 2.0
 )
 ```
 
@@ -89,6 +92,7 @@ data class ModConfig(
 - `advancementTaskSeconds` - Reward for task advancements (default: 15 minutes)
 - `advancementGoalSeconds` - Reward for goal advancements (default: 30 minutes)
 - `advancementChallengeSeconds` - Reward for challenge advancements (default: 1 hour)
+- `pvpTransferMultiplier` - Multiplier for PvP transfers during happy hour (default: 2.0)
 
 **ModConfigManager**:
 - **Location**: `config/chrono-mod/config.json`
@@ -104,14 +108,18 @@ data class ModConfig(
 data class PlayerTimeData(
     @Contextual val uuid: UUID,
     var remainingTimeSeconds: Long,
-    @Contextual var lastWeeklyAllotment: Instant
+    @Contextual var lastWeeklyAllotment: Instant,
+    var username: String = "",
+    val pendingNotifications: MutableList<String> = mutableListOf()
 )
 ```
 
-**Companion Object Constants** (Deprecated):
-- Legacy constants kept for reference only
-- Actual values now come from `ModConfig`
-- All deprecated and marked with `@Deprecated` annotation
+**Fields**:
+- `uuid` — Player unique identifier
+- `remainingTimeSeconds` — Current quota in seconds
+- `lastWeeklyAllotment` — Timestamp of last allotment (used to calculate eligibility)
+- `username` — Minecraft username (updated on join; enables offline player resolution by name)
+- `pendingNotifications` — Queue of chat messages from offline operations (e.g., transfers, admin commands while player away); persisted in JSON so messages survive server restarts
 
 **Key Methods**:
 - `createNew(uuid, initialQuotaSeconds)` - Initialize new player with configurable quota
@@ -125,8 +133,7 @@ data class PlayerTimeData(
 - `markAdvancementAwarded(id)` - Record advancement as awarded this session
 - `clearAwardedAdvancements()` - Clear session set on disconnect (memory cleanup)
 
-**Design Note**: Methods accept config values as parameters rather than using defaults, enforcing that all configuration
-flows through `PlayerDataManager`.
+**Backward Compatibility**: New fields `username` and `pendingNotifications` have default values. Existing JSON files without these fields load without error (defaults are applied).
 
 ### 2. PlayerDataManager (Persistence & Business Logic)
 **File**: `src/main/kotlin/com/chronomod/data/PlayerDataManager.kt`
@@ -147,6 +154,10 @@ flows through `PlayerDataManager`.
 - `getOrCreate(uuid)` - Get existing or create new player data (uses config for initial quota)
 - `get(uuid)` - Get player data if exists
 - `exists(uuid)` - Check if player has data
+- `getByUsername(name)` - Find player data by username (case-insensitive); returns null if not found
+- `resolvePlayer(name, server)` - Resolve player by name (online or offline)
+  - Checks online players first, then falls back to stored username
+  - Returns `Pair<ServerPlayer?, PlayerTimeData?>` (both null if not found, only one may be non-null for offline players)
 
 **Business Logic Methods**:
 - `checkAndGrantAllotment(uuid)` - Check eligibility and grant allotment if eligible
@@ -197,44 +208,125 @@ calculation rules are encapsulated in one place.
 
 **Kick Message**: "Your time quota has been depleted! Come back next week for more time."
 
-### 4. PlayerJoinHandler (Lifecycle Events)
+### 4. HappyHourManager (Happy Hour State Management)
+**File**: `src/main/kotlin/com/chronomod/systems/HappyHourManager.kt`
+
+**Purpose**: Manages happy hour lifecycle and state without enforcing game mechanics
+
+**State Machine**:
+```kotlin
+sealed class HappyHourState {
+    object Inactive : HappyHourState()
+    data class Active(val endTimeEpochMs: Long) : HappyHourState()
+}
+```
+
+**Thread Safety**: Uses `AtomicReference<HappyHourState>` for concurrent access
+
+**Key Methods**:
+- `start(durationSeconds: Long)` - Start happy hour, returns end time
+- `end()` - Immediately end happy hour
+- `isActive()` - Check if happy hour active and not expired (auto-expires if needed)
+- `getSafeRemainingSeconds()` - Get remaining seconds with auto-expiration
+- `getState()` - Get current state without auto-expiring
+
+**Design Note**: Pure state management - no game logic dependencies. Allows other systems to query and react to happy hour state independently.
+
+### 5. BossbarTracker (Countdown Display)
+**File**: `src/main/kotlin/com/chronomod/systems/BossbarTracker.kt`
+
+**Purpose**: Display happy hour countdown to players with persistent, smooth visual updates via action bar messages
+
+**Mechanism**:
+- Registers `ServerTickEvents.END_SERVER_TICK`
+- Updates every 20 ticks (1 second) for smooth, real-time countdown
+- Broadcasts remaining time to all online players simultaneously
+- Shows "▶ Happy Hour: M:SS remaining [Progress Bar]" format with Unicode visual indicators
+- Progress bar uses block characters: "▓" (filled) → "░" (empty) as time drains
+- Color logic: Yellow (§6) normally → Red (§c) when <5 seconds remain for urgency
+
+**Data Structures**:
+- `bossbarUuid` - Identifier for tracking active happy hour countdown (UUID)
+- `playerUuidsWithBossbar` - ConcurrentHashMap of UUID → Boolean tracking which players see the countdown
+- Thread-safe: Uses ConcurrentHashMap for multi-threaded tick events
+
+**Key Methods**:
+- `createBossbar(durationSeconds, server)` - Initialize countdown display, start tick updates
+- `update(server)` - Called every 20 ticks; queries HappyHourManager state and broadcasts updated message
+- `showToPlayer(uuid, server)` - Add player to active countdown display (called on player join)
+- `removeFromPlayer(uuid, server)` - Remove player from countdown display (called on player disconnect)
+- `removeBossbarForAll(server)` - Clear countdown for all players when happy hour ends
+
+**Behavior**:
+- **Inactive**: No tracking, no messages sent
+- **Active**: Action bar message broadcasts every 1 second
+  - Format: "▶ Happy Hour: 1:23 remaining ▓▓▓▓▓▓▒░░░░"
+  - Progress bar width: ~30 characters max, scaled to remaining time
+  - Smooth visual drain: Each second removes one block character
+- **Late Joins**: Players joining during active happy hour immediately added to display via `PlayerJoinHandler.onJoin()`
+- **Color Warning**: Last 5 seconds turn message red (§c) to alert players
+- **Auto-cleanup**: Clears display from all players when happy hour ends via `ChronoCommand.executeHappyHourEnd()`
+
+**Design Notes**:
+- Uses `sendSystemMessage(component, true)` where second parameter targets action bar
+- Queries `HappyHourManager.getSafeRemainingSeconds()` each tick to auto-expire stale happy hours
+- Requires global `ChronoMod.currentServer` reference to access ServerPlayer entity for broadcasting
+- Stateless display logic - recomputes progress bar every tick based on current time
+- Thread-safe UUID tracking allows concurrent player join/disconnect during updates
+
+### 6. PlayerJoinHandler (Lifecycle Events)
 **File**: `src/main/kotlin/com/chronomod/events/PlayerJoinHandler.kt`
 
-**Dependencies**: `PlayerDataManager`, `Logger` (no config dependency)
+**Dependencies**: `PlayerDataManager`, `BossbarTracker`, `Logger`, `ChronoMod` (for global server ref)
 
 **Join Logic**:
 1. Check if new player → Grant initial quota (via `dataManager.getOrCreate()`)
 2. Existing player → Check allotment eligibility (via `dataManager.checkAndGrantAllotment()`)
 3. Pattern match on `AllotmentResult` to send appropriate message
 4. Save data immediately
+5. Update stored username (via `playerData.username = player.name.string`) — handles name changes
+6. Deliver any queued `pendingNotifications` — send each to player as chat message, then clear and save
+7. Show countdown display if happy hour active (via `bossbarTracker.showToPlayer(uuid, server)`)
+   - Late-joining players immediately added to active countdown display
+   - Updates with rest of player population at 1-second intervals
 
 **Disconnect Logic**:
+- Remove player from countdown display (via `bossbarTracker.removeFromPlayer(uuid, server)`)
 - Clear session advancement set via `playerData.clearAwardedAdvancements()`
 - Save player data on disconnect
 
-**Design Note**: Handler is a thin adapter - it translates Minecraft events to business operations without knowing about
-configuration values.
+**Server Reference Pattern**:
+- Event handlers extract server via `ChronoMod.currentServer` (global singleton set on SERVER_STARTED)
+- Avoids Java reflection on private `ServerPlayer.server` field
+- Null-checked before use (defensive pattern)
 
-### 5. PvPTransferHandler (Combat Transfers)
+**Design Note**: Handler is a thin adapter - it translates Minecraft events to business operations. Coordinates with `BossbarTracker` to ensure joining players see active happy hour and are removed on disconnect. Username updates enable offline player resolution.
+
+### 7. PvPTransferHandler (Combat Transfers)
 **File**: `src/main/kotlin/com/chronomod/events/PvPTransferHandler.kt`
 
-**Dependencies**: `PlayerDataManager`, `Logger` (no config dependency)
+**Dependencies**: `PlayerDataManager`, `HappyHourManager`, `ModConfig`, `Logger`
 
 **Event**: `ServerEntityCombatEvents.AFTER_KILLED_OTHER_ENTITY`
 
 **Transfer Logic**:
 1. Verify both entities are ServerPlayer instances
-2. Delegate to `dataManager.transferQuotaOnPvPKill(victimUuid, killerUuid)`
-3. Pattern match on `PvPTransferResult`:
-   - `Success` → Notify both players, save data
+2. Calculate multiplier: 2x from config if happy hour active, else 1.0x
+3. Delegate to `dataManager.transferQuotaOnPvPKill(victimUuid, killerUuid, multiplier)`
+4. Pattern match on `PvPTransferResult`:
+   - `Success` → Notify both players with multiplier indicator, save data
    - `NoTimeAvailable` → Log debug message
    - `NoData` → Log warning
-4. All quota calculation done in PlayerDataManager
+5. All quota calculation done in PlayerDataManager
 
-**Design Note**: Handler focuses on event coordination and player messaging, delegating business logic to the data
-layer.
+**Happy Hour Integration**:
+- Chat messages include "§b(Happy Hour 2x!)" indicator if active
+- Multiplier applied in `PlayerDataManager.transferQuotaOnPvPKill()`
+- Logging includes multiplier factor for admin visibility
 
-### 6. AdvancementHandler (Advancement Rewards)
+**Design Note**: Handler queries happy hour state to determine multiplier, then passes to business logic.
+
+### 8. AdvancementHandler (Advancement Rewards)
 **File**: `src/main/kotlin/com/chronomod/events/AdvancementHandler.kt`
 
 **Dependencies**: `PlayerDataManager`, `Logger` (no config dependency)
@@ -269,35 +361,86 @@ layer.
 
 **Design Note**: Written in Java (not Kotlin) to avoid annotation processing edge cases with Mixin.
 
-### 8. ChronoCommand (Player Commands)
+### 9. ChronoCommand (Player Commands)
 **File**: `src/main/kotlin/com/chronomod/commands/ChronoCommand.kt`
+
+**Dependencies**: `PlayerDataManager`, `HappyHourManager`, `BossbarTracker`, `ModConfig`, `Logger`
+
+**Tab Completion**: Built-in suggestion provider lists both online and offline players (by stored username)
 
 **Commands**:
 - `/chrono balance` - Show own remaining quota
-- `/chrono balance <player>` - Show another player's remaining quota
-- `/chrono list` - List all players' quotas sorted alphabetically (shows short UUID for offline players)
+- `/chrono balance <player>` - Show another player's remaining quota (supports offline by name, tab-complete)
+- `/chrono list` - List all players' quotas sorted alphabetically; offline players display by stored username instead of UUID; 0-quota entries shown in red (§c)
 - `/chrono transfer <player> <minutes>` - Transfer quota to another player (min 1 minute, no self-transfer)
+  - **Offline Support**: Works with offline players by name; queues notification in `pendingNotifications` for next login
+  - **Revive Detection**: If target had 0 quota (was revived), sender sees revive confirmation message and target receives revive notification on next login
+  - **Notification Format**: "§aWhile you were offline, §e{sender}§a transferred §e{X min}§a to you!"
 
-### 9. ChronoMod (Main Entry)
+**Admin Commands** (Operator-only):
+- `/chrono add <player> <minutes>` - Admin command to grant time to an online player
+  - Example: `/chrono add Steve 60` grants 60 minutes to Steve
+  - Notifies the target player immediately
+  - Shows before/after quota totals
+  - Minimum: 1 minute
+  - Operator verification required (checks ops.json)
+
+- `/chrono remove <player> <minutes>` - Admin command to remove time from an online player
+  - Example: `/chrono remove Steve 30` removes 30 minutes from Steve
+  - Validates player has sufficient quota before removal
+  - Shows before/after quota totals
+  - Notifies the target player immediately
+  - Minimum: 1 minute
+  - Operator verification required (checks ops.json)
+
+- `/chrono happyhour start <minutes>` - Start a happy hour event
+  - Broadcasts fullscreen title and subtitle to all players
+  - Activates countdown display: "▶ Happy Hour: M:SS remaining [Progress Bar]" via action bar (1-second updates)
+  - Parameters: duration in minutes (minimum 1)
+  - Players' quota doesn't burn during this time
+  - PvP transfers are multiplied by `config.pvpTransferMultiplier` (default: 2.0)
+  - All online players see persistent countdown with smooth visual progress drain
+  - Late-joining players added to active countdown display automatically
+  - Replaces any existing happy hour
+  - **Permission Check**: Returns error if player is not an operator (checked via ops.json)
+
+- `/chrono happyhour end` - Immediately end the current happy hour
+  - Broadcasts end message to all players
+  - Clears countdown display for all players
+  - Quota burning resumes for all players
+  - **Permission Check**: Returns error if player is not an operator (checked via ops.json)
+
+### 10. ChronoMod (Main Entry)
 **File**: `src/main/kotlin/com/chronomod/ChronoMod.kt`
+
+**Global State**:
+- `var currentServer: MinecraftServer? = null` - Singleton reference to active server
+  - Set on `SERVER_STARTED` event
+  - Cleared on `SERVER_STOPPING` event
+  - Accessed by event handlers that need to broadcast action bar messages without storing server reference
+  - Enables `PlayerJoinHandler`, `PlayerJoinHandler`, and `BossbarTracker` to access ServerPlayer entities
 
 **Initialization Order**:
 1. Load configuration from `config/chrono-mod/config.json`
 2. Create PlayerDataManager with config reference
-3. Initialize all system components
-4. Register server lifecycle events
-5. Register all component events
-6. Setup auto-save (every 5 minutes)
+3. Initialize HappyHourManager and BossbarTracker
+4. Initialize all system components with dependencies
+5. Register server lifecycle events
+6. Register all component events
+7. Setup auto-save (every 5 minutes)
 
 **Lifecycle Hooks**:
-- `SERVER_STARTED` → Load data
-- `SERVER_STOPPING` → Save data
-- `END_SERVER_TICK` → Auto-save timer
+- `SERVER_STARTED` → Set `currentServer`, load data
+- `SERVER_STOPPING` → Save data, clear `currentServer`
+- `END_SERVER_TICK` → Auto-save timer, HappyHourManager ticker, BossbarTracker ticker
 
 **Mixin Bridge**: `onAdvancementCompleted(player, advancement)` — called by `PlayerAdvancementsMixin`, delegates to `AdvancementHandler`
 
-**Design Note**: Config is loaded first and passed to PlayerDataManager, which then provides all config-aware business
-logic to the rest of the system.
+**Design Notes**: 
+- Config is loaded first and passed to all components that need it
+- HappyHourManager and BossbarTracker are initialized early and passed to dependent systems
+- Global server reference allows event handlers to broadcast action bar messages without parameter threading
+- Thread safety: All system references initialized before thread-sensitive events fire
 
 ## Data Persistence
 
@@ -313,7 +456,11 @@ logic to the rest of the system.
   "550e8400-e29b-41d4-a716-446655440000": {
     "uuid": "550e8400-e29b-41d4-a716-446655440000",
     "remainingTimeSeconds": 25200,
-    "lastWeeklyAllotment": 1710374400
+    "lastWeeklyAllotment": 1710374400,
+    "username": "Steve",
+    "pendingNotifications": [
+      "§aWhile you were offline, §eAlice§a transferred §e1h§a to you!"
+    ]
   }
 }
 ```
@@ -324,6 +471,7 @@ logic to the rest of the system.
 - **Rate**: 1 second of quota per 1 second of playtime
 - **Applies to**: Online players only
 - **Tick frequency**: Every 20 game ticks (1 real-world second)
+- **Happy Hour Override**: Quota does NOT burn during active happy hour
 
 ### Periodic Allotment
 - **Amount**: Configurable via `periodicAllotmentSeconds` (default: 8 hours)
@@ -333,9 +481,22 @@ logic to the rest of the system.
 
 ### PvP Transfers
 - **Trigger**: Player kills another player
-- **Amount**: Configurable via `pvpTransferSeconds` (default: 1 hour)
+- **Base Amount**: Configurable via `pvpTransferSeconds` (default: 1 hour)
 - **Direction**: Victim → Killer
 - **Minimum**: Transfers available quota (can be less if victim has insufficient time)
+- **Happy Hour Multiplier**: During happy hour, transfer amount is multiplied by `pvpTransferMultiplier` (default: 2.0x)
+  - Example: Base 1 hour × 2.0 multiplier = 2 hours transferred during happy hour
+
+### Happy Hour
+- **Trigger**: Admin command `/chrono happyhour start <minutes>`
+- **Duration**: Configurable per activation (minimum 1 minute)
+- **Effects**: 
+  - Players' quota doesn't burn (frozen in time)
+  - PvP transfers are multiplied by `config.pvpTransferMultiplier`
+  - All online players see countdown via action bar
+  - New players joining see happy hour notification
+- **Replacement**: Starting new happy hour ends any existing one
+- **State**: Session-scoped (not persisted across restarts)
 
 ### Quota Depletion
 - **Action**: Player kicked from server
@@ -412,8 +573,31 @@ logic to the rest of the system.
 - [ ] Player quota reaches 0 → Kicked from server
 - [ ] Server restart → Data persists
 - [ ] Multiple players online → All quotas burn correctly
-- [ ] Config file created on first run with defaults (including advancement fields)
+- [ ] Config file created on first run with defaults (including advancement & happy hour fields)
 - [ ] Config changes applied after server restart
+- [ ] **Offline Players: `/chrono balance <offline-player>`** → Shows stored quota for offline player by name
+- [ ] **Offline Players: `/chrono list`** → Offline players show by stored username (not UUID); 0-quota entries in red
+- [ ] **Offline Players: `/chrono transfer <offline-player> 10`** → Transfers 10 min; target receives notification on login
+- [ ] **Offline Players: `/chrono transfer <depleted-offline-player> 10`** → Revive case: sender sees "revived" message; target receives revive notification on login
+- [ ] **Admin Add: `/chrono add <online-player> 60` (OP)** → Grants time; shows before/after totals
+- [ ] **Admin Remove: `/chrono remove <online-player> 30` (OP)** → Removes time; checks sufficient quota exists
+- [ ] **Offline Players: Tab-complete** → Shows both online and offline player names
+- [ ] **Offline Players: Case-insensitive** → `/chrono transfer STEVE 5` resolves against stored username "Steve"
+- [ ] **Offline Players: Server restart** → Pending notifications survive restarts (persisted in JSON)
+- [ ] **Offline Players: Notification delivery** → Offline messages shown at top of join sequence, before allotment/welcome
+- [ ] **Happy Hour: Admin runs `/chrono happyhour start 5`** → Fullscreen title "Happy Hour!" shown to all players
+- [ ] **Happy Hour: Countdown visible** → Action bar shows "▶ Happy Hour: 4:XX remaining ▓▓▓▓▓▒░░░░" format
+- [ ] **Happy Hour: Updates every 1 second** → Countdown updates smoothly without 10-second gaps
+- [ ] **Happy Hour: Progress bar drains** → Unicode block characters visually decrease as time passes (▓→░)
+- [ ] **Happy Hour: Color urgency** → Progress bar yellow (§6) normally, turns red (§c) in final 5 seconds
+- [ ] **Happy Hour: Quota doesn't burn** → Player plays 2 minutes, quota unchanged
+- [ ] **Happy Hour: PvP transfers multiplied** → Transfer is 2x config value (default 2h instead of 1h)
+- [ ] **Happy Hour: Late join shows countdown** → Player joining during happy hour sees countdown immediately
+- [ ] **Happy Hour: Disconnect clears display** → Player doesn't see countdown after disconnecting
+- [ ] **Happy Hour: `/chrono happyhour end`** → Happy hour ends, action bar clears, quota burn resumes
+- [ ] **Happy Hour: New start replaces** → Start arbitrary happy hour, then start new one → new duration replaces old
+- [ ] **Happy Hour: Config multiplier** → Change `pvpTransferMultiplier: 3.0`, restart, verify 3x transfers during happy hour
+- [ ] **Backward Compatibility** → Existing JSON without `username` or `pendingNotifications` fields loads without error
 
 ## Configuration
 
@@ -428,7 +612,8 @@ The mod supports JSON-based configuration via `config/chrono-mod/config.json`:
   "allotmentPeriodLength": 604800,
   "advancementTaskSeconds": 900,
   "advancementGoalSeconds": 1800,
-  "advancementChallengeSeconds": 3600
+  "advancementChallengeSeconds": 3600,
+  "pvpTransferMultiplier": 2.0
 }
 ```
 
@@ -440,6 +625,7 @@ The mod supports JSON-based configuration via `config/chrono-mod/config.json`:
 - **advancementTaskSeconds**: Quota for task advancements (default: 900 = 15 minutes)
 - **advancementGoalSeconds**: Quota for goal advancements (default: 1,800 = 30 minutes)
 - **advancementChallengeSeconds**: Quota for challenge advancements (default: 3,600 = 1 hour)
+- **pvpTransferMultiplier**: Multiplier for PvP transfers during happy hour (default: 2.0)
 
 ### Behavior
 - **Auto-creation**: File created with defaults if missing on first run

@@ -6,6 +6,8 @@ import com.chronomod.data.PlayerDataManager
 import com.chronomod.events.AdvancementHandler
 import com.chronomod.events.PlayerJoinHandler
 import com.chronomod.events.PvPTransferHandler
+import com.chronomod.systems.BossbarTracker
+import com.chronomod.systems.HappyHourManager
 import com.chronomod.systems.QuotaTracker
 import java.nio.file.Paths
 import java.util.concurrent.atomic.AtomicInteger
@@ -21,11 +23,18 @@ object ChronoMod : DedicatedServerModInitializer {
     const val MOD_ID = "chrono-mod"
     val LOGGER: Logger = LoggerFactory.getLogger(MOD_ID)
 
+    // Server reference for event handlers
+    var currentServer: net.minecraft.server.MinecraftServer? = null
+
     // Config manager
     private lateinit var configManager: ModConfigManager
 
     // Data manager for persistence
     private lateinit var dataManager: PlayerDataManager
+
+    // Happy hour system
+    private lateinit var happyHourManager: HappyHourManager
+    private lateinit var bossbarTracker: BossbarTracker
 
     // System components
     private lateinit var quotaTracker: QuotaTracker
@@ -52,12 +61,16 @@ object ChronoMod : DedicatedServerModInitializer {
         val dataFile = configDir.resolve("player-data.json")
         dataManager = PlayerDataManager(dataFile, LOGGER, configManager.config)
 
+        // Initialize happy hour system
+        happyHourManager = HappyHourManager()
+        bossbarTracker = BossbarTracker(happyHourManager, LOGGER)
+
         // Initialize systems
-        quotaTracker = QuotaTracker(dataManager, LOGGER)
-        playerJoinHandler = PlayerJoinHandler(dataManager, LOGGER)
-        pvpTransferHandler = PvPTransferHandler(dataManager, LOGGER)
+        quotaTracker = QuotaTracker(dataManager, LOGGER, happyHourManager)
+        playerJoinHandler = PlayerJoinHandler(dataManager, bossbarTracker, LOGGER)
+        pvpTransferHandler = PvPTransferHandler(dataManager, happyHourManager, configManager.config, LOGGER)
         advancementHandler = AdvancementHandler(dataManager, LOGGER)
-        chronoCommand = ChronoCommand(dataManager, LOGGER)
+        chronoCommand = ChronoCommand(dataManager, happyHourManager, bossbarTracker, configManager.config, LOGGER)
 
         // Register server lifecycle events
         registerLifecycleEvents()
@@ -66,6 +79,7 @@ object ChronoMod : DedicatedServerModInitializer {
         quotaTracker.register()
         playerJoinHandler.register()
         pvpTransferHandler.register()
+        bossbarTracker.register()
         chronoCommand.register()
 
         // Register auto-save
@@ -83,6 +97,7 @@ object ChronoMod : DedicatedServerModInitializer {
     private fun registerLifecycleEvents() {
         // Server started - load data
         ServerLifecycleEvents.SERVER_STARTED.register { server ->
+            currentServer = server
             LOGGER.info("Server started - loading player data")
             dataManager.load()
         }
@@ -91,6 +106,7 @@ object ChronoMod : DedicatedServerModInitializer {
         ServerLifecycleEvents.SERVER_STOPPING.register { _ ->
             LOGGER.info("Server stopping - saving player data")
             dataManager.save()
+            currentServer = null
         }
     }
 
@@ -103,6 +119,8 @@ object ChronoMod : DedicatedServerModInitializer {
                 autoSaveTickCounter.set(0)
                 LOGGER.info("Auto-saving player data")
                 dataManager.save()
+                // Clear old processed kills to prevent memory buildup
+                pvpTransferHandler.clearProcessedKills()
             }
         }
     }
