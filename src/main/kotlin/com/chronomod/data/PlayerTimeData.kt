@@ -65,6 +65,16 @@ data class PlayerTimeData(
     }
 
     /**
+     * Seconds until the next allotment becomes available.
+     *
+     * @param allotmentPeriodLength Period length in seconds
+     */
+    fun secondsUntilNextAllotment(allotmentPeriodLength: Long): Long {
+        val timeSinceLastAllotment = Instant.now().epochSecond - lastWeeklyAllotment.epochSecond
+        return maxOf(0, allotmentPeriodLength - timeSinceLastAllotment)
+    }
+
+    /**
      * Grant an allotment of the given size.
      *
      * @param allotmentSeconds Amount to add in seconds

@@ -36,9 +36,10 @@ class PlayerJoinHandler(private val dataManager: PlayerDataManager, private val 
         if (isNewPlayer) {
             // New player - get initial quota
             val playerData = dataManager.getOrCreate(uuid)
+            val nextAllotment = dataManager.formatDurationHuman(dataManager.getSecondsUntilNextAllotment(uuid))
             player.sendSystemMessage(
                     Component.literal(
-                            "§aWelcome! You have been granted ${playerData.formatRemainingTime()} of playtime."
+                            "§aWelcome! You have been granted ${playerData.formatRemainingTime()} of playtime. Next allotment in $nextAllotment."
                     )
             )
             logger.info("New player ${player.name.string} ($uuid) joined with initial quota")
@@ -46,17 +47,19 @@ class PlayerJoinHandler(private val dataManager: PlayerDataManager, private val 
             // Existing player - check for allotment
             when (val result = dataManager.checkAndGrantAllotment(uuid)) {
                 is AllotmentResult.Granted -> {
+                    val nextAllotment = dataManager.formatDurationHuman(dataManager.getSecondsUntilNextAllotment(uuid))
                     player.sendSystemMessage(
                             Component.literal(
-                                    "§aAllotment granted! You now have ${result.newTotal} of playtime."
+                                    "§aAllotment granted! You now have ${result.newTotal} of playtime. Next allotment in $nextAllotment."
                             )
                     )
                     logger.info("Granted allotment to ${player.name.string} ($uuid)")
                 }
                 is AllotmentResult.NotEligible -> {
+                    val nextAllotment = dataManager.formatDurationHuman(dataManager.getSecondsUntilNextAllotment(uuid))
                     player.sendSystemMessage(
                             Component.literal(
-                                    "§7Welcome back! You have ${result.currentTotal} of playtime remaining."
+                                    "§7Welcome back! You have ${result.currentTotal} of playtime remaining. Next allotment in $nextAllotment."
                             )
                     )
                 }

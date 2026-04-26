@@ -130,6 +130,34 @@ class PlayerDataManager(
     }
 
     /**
+     * Seconds until the next allotment becomes available.
+     */
+    fun getSecondsUntilNextAllotment(uuid: UUID): Long {
+        val playerData = getOrCreate(uuid)
+        return playerData.secondsUntilNextAllotment(config.allotmentPeriodLength)
+    }
+
+    /**
+     * Format duration into a human-readable string like "2 days, 4 hours, 30 minutes".
+     */
+    fun formatDurationHuman(seconds: Long): String {
+        var remainingSeconds = maxOf(0, seconds)
+        val days = remainingSeconds / 86_400
+        remainingSeconds %= 86_400
+        val hours = remainingSeconds / 3_600
+        remainingSeconds %= 3_600
+        val minutes = remainingSeconds / 60
+
+        val parts = mutableListOf<String>()
+        if (days > 0) parts.add("$days day${if (days == 1L) "" else "s"}")
+        if (hours > 0) parts.add("$hours hour${if (hours == 1L) "" else "s"}")
+        if (minutes > 0) parts.add("$minutes minute${if (minutes == 1L) "" else "s"}")
+        if (parts.isEmpty()) parts.add("0 minutes")
+
+        return parts.joinToString(", ")
+    }
+
+    /**
      * Grant quota for completing an advancement.
      * @param uuid Player UUID
      * @param seconds Amount to add in seconds

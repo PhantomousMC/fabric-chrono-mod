@@ -13,6 +13,7 @@ while they're online, encouraging strategic play and creating a fair, time-limit
 ### 📅 Periodic Allotment
 - Players receive additional playtime at regular intervals (default: 8 hours every 7 days)
 - Granted automatically on login after the configured period has elapsed
+- Players are notified on login when their next allotment is due, using a human-readable countdown like "2 days, 4 hours, 30 minutes"
 - Prevents stockpiling - only active players benefit
 
 ### ⚔️ PvP Quota Transfer
