@@ -5,6 +5,8 @@ import java.util.concurrent.ConcurrentHashMap
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents
 import net.minecraft.network.chat.Component
 import net.minecraft.server.MinecraftServer
+import net.minecraft.world.effect.MobEffectInstance
+import net.minecraft.world.effect.MobEffects
 import org.slf4j.Logger
 
 /**
@@ -21,6 +23,8 @@ class BossbarTracker(
 ) {
     private var tickCounter: Int = 0
     private var lastDisplayedTime: Long = -1L
+    // Counts seconds while happy hour is active; used to schedule glowing effect every 10s
+    private var glowSecondCounter: Int = 0
     private val playerUuidsWithBossbar = ConcurrentHashMap.newKeySet<UUID>()
 
     /** Register event listeners. */
@@ -35,6 +39,17 @@ class BossbarTracker(
         tickCounter = 0
 
         update(server)
+
+        // Happy hour glowing effect: every 10 seconds, give all online players the glowing effect
+        if (happyHourManager.isActive()) {
+            glowSecondCounter++
+            if (glowSecondCounter % 10 == 0) {
+                giveGlowingToAll(server)
+            }
+        } else {
+            // reset counter when not active
+            glowSecondCounter = 0
+        }
     }
 
     /** Create a bossbar for the happy hour and send to all online players. */
@@ -111,6 +126,20 @@ class BossbarTracker(
                 player.sendSystemMessage(message, true)
             }
         }
+    }
+
+    /** Apply the glowing effect to all online players for 10 seconds (200 ticks). */
+    private fun giveGlowingToAll(server: MinecraftServer) {
+        val durationTicks = 10 * 20 // 10 seconds
+        val amplifier = 0
+        for (player in server.playerList.players) {
+            try {
+                player.addEffect(MobEffectInstance(MobEffects.GLOWING, durationTicks, amplifier, false, false))
+            } catch (e: Exception) {
+                logger.warn("Failed to apply glowing to player ${player.name.string}: ${e.message}")
+            }
+        }
+        logger.info("Applied glowing effect to ${server.playerList.players.size} players for ${durationTicks} ticks")
     }
 
     /** Remove bossbar from all players. */
