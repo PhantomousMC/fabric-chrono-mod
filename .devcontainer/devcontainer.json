@@ -1,0 +1,16 @@
+{
+  "name": "Chrono SMP",
+  "image": "mcr.microsoft.com/devcontainers/java:1-21-bookworm",
+  "remoteUser": "vscode",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "vscjava.vscode-java-pack",
+        "redhat.java",
+        "fwcd.kotlin",
+        "ms-vscode.vscode-gradle"
+      ]
+    }
+  },
+  "postCreateCommand": "bash -lc 'java -version && ./gradlew --version'"
+}
